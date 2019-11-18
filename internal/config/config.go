@@ -17,11 +17,14 @@ package config // import "go.universe.tf/metallb/internal/config"
 import (
 	"errors"
 	"fmt"
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
 	"net"
 	"strconv"
 	"strings"
 	"time"
 
+	_ "github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam/fake"
 	"github.com/mikioh/ipaddr"
 	yaml "gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -88,6 +91,7 @@ type Proto string
 const (
 	BGP    Proto = "bgp"
 	Layer2       = "layer2"
+	IPAM         = "ipam"
 )
 
 // Peer is the configuration of a BGP peering session.
@@ -132,6 +136,8 @@ type Pool struct {
 	// When an IP is allocated from this pool, how should it be
 	// translated into BGP announcements?
 	BGPAdvertisements []*BGPAdvertisement
+	// When an Protocol is IPAM then ip allocations go through the IPAM agent.
+	IPAM ipam.Agent
 }
 
 // BGPAdvertisement describes one translation from an IP address to a BGP advertisement.
@@ -339,6 +345,12 @@ func parseAddressPool(p addressPool, bgpCommunities map[string]uint32) (*Pool, e
 			return nil, fmt.Errorf("parsing BGP communities: %s", err)
 		}
 		ret.BGPAdvertisements = ads
+	case IPAM:
+		agent, err := parseIPAMConfig()
+		if err != nil {
+			return nil, fmt.Errorf("parsing ipam agent config: %s", err)
+		}
+		ret.IPAM = agent
 	case "":
 		return nil, errors.New("address pool is missing the protocol field")
 	default:
@@ -346,6 +358,25 @@ func parseAddressPool(p addressPool, bgpCommunities map[string]uint32) (*Pool, e
 	}
 
 	return ret, nil
+}
+
+func parseIPAMConfig() (ipam.Agent, error) {
+	fake.SetState(&fake.State{
+		ReservationsToReturn:     []ipam.IPAddressReservation{
+			{
+				ID:      "some-id",
+				Address: "1.2.3.4",
+			},
+		},
+		IPPoolsToReturn:          nil,
+		ReserveIPsError:          nil,
+		ListReservationsError:    nil,
+		ReleaseReservationsError: nil,
+		ListIPPoolsError:         nil,
+		HealthCheckError:         nil,
+	})
+
+	return fake.GetFakeIPAMAgent(), nil
 }
 
 func parseBGPAdvertisements(ads []bgpAdvertisement, cidrs []*net.IPNet, communities map[string]uint32) ([]*BGPAdvertisement, error) {

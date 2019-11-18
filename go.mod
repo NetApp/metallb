@@ -1,14 +1,14 @@
 module go.universe.tf/metallb
 
-go 1.12
+go 1.13
 
 require (
+	github.com/NetApp/nks-on-prem-ipam v0.1.4
 	github.com/armon/go-radix v1.0.0 // indirect
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2 // indirect
 	github.com/eapache/channels v1.1.0 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/go-kit/kit v0.9.0
-	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/protobuf v1.3.1
 	github.com/google/go-cmp v0.3.0
 	github.com/googleapis/gnostic v0.2.0 // indirect
@@ -22,7 +22,7 @@ require (
 	github.com/prometheus/client_golang v1.0.0
 	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/spf13/cobra v0.0.5
-	github.com/spf13/pflag v1.0.3
+	github.com/stretchr/testify v1.4.0
 	github.com/vishvananda/netlink v1.0.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20190625233234-7109fa855b0f // indirect
 	go.universe.tf/virtuakube v0.0.0-20190708182722-512c11153571

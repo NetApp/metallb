@@ -1,6 +1,10 @@
 package allocator
 
 import (
+	"errors"
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam/fake"
+	"github.com/stretchr/testify/assert"
 	"math"
 	"net"
 	"strconv"
@@ -317,32 +321,32 @@ func TestAssignment(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		if test.ip == "" {
-			alloc.Unassign(test.svc)
-			continue
-		}
-		ip := net.ParseIP(test.ip)
-		if ip == nil {
-			t.Fatalf("invalid IP %q in test %q", test.ip, test.desc)
-		}
-		alreadyHasIP := assigned(alloc, test.svc) == test.ip
-		err := alloc.Assign(test.svc, ip, test.ports, test.sharingKey, test.backendKey)
-		if test.wantErr {
-			if err == nil {
-				t.Errorf("%q should have caused an error, but did not", test.desc)
-			} else if a := assigned(alloc, test.svc); !alreadyHasIP && a == test.ip {
-				t.Errorf("%q: Assign(%q, %q) failed, but allocator did record allocation", test.desc, test.svc, test.ip)
+		t.Run(test.desc, func(tt *testing.T) {
+			if test.ip == "" {
+				alloc.Unassign(test.svc)
+				return
 			}
 
-			continue
-		}
+			ip := net.ParseIP(test.ip)
+			if ip == nil {
+				t.Fatalf("invalid IP %q in test %q", test.ip, test.desc)
+			}
+			alreadyHasIP := assigned(alloc, test.svc) == test.ip
+			err := alloc.Assign(test.svc, ip, test.ports, test.sharingKey, test.backendKey)
+			if test.wantErr {
+				assert.Errorf(tt, err, "%q should have caused an error, but did not", test.desc)
 
-		if err != nil {
-			t.Errorf("%q: Assign(%q, %q): %s", test.desc, test.svc, test.ip, err)
-		}
-		if a := assigned(alloc, test.svc); a != test.ip {
-			t.Errorf("%q: ran Assign(%q, %q), but allocator has recorded allocation of %q", test.desc, test.svc, test.ip, a)
-		}
+				if a := assigned(alloc, test.svc); !alreadyHasIP && a == test.ip {
+					tt.Errorf("%q: Assign(%q, %q) failed, but allocator did record allocation", test.desc, test.svc, test.ip)
+				}
+
+				return
+			}
+
+			assert.NoErrorf(tt, err, "%q: Assign(%q, %q): %s", test.desc, test.svc, test.ip, err)
+			a := assigned(alloc, test.svc)
+			assert.Equalf(tt, a, test.ip, "%q: ran Assign(%q, %q), but allocator has recorded allocation of %q", test.desc, test.svc, test.ip, a)
+		})
 	}
 }
 
@@ -573,34 +577,33 @@ func TestPoolAllocation(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		if test.unassign {
-			alloc.Unassign(test.svc)
-			continue
-		}
-		ip, err := alloc.AllocateFromPool(test.svc, test.isIPv6, "test", test.ports, test.sharingKey, "")
-		if test.wantErr {
-			if err == nil {
-				t.Errorf("%s: should have caused an error, but did not", test.desc)
+		t.Run(test.desc, func(tt *testing.T) {
 
+			if test.unassign {
+				alloc.Unassign(test.svc)
+				return
 			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("%s: AllocateFromPool(%q, \"test\"): %s", test.desc, test.svc, err)
-		}
-		validIPs := validIP4s
-		if test.isIPv6 {
-			validIPs = validIP6s
-		}
-		if !validIPs[ip.String()] {
-			t.Errorf("%s: allocated unexpected IP %q", test.desc, ip)
-		}
+
+			ip, err := alloc.AllocateFromPool(test.svc, test.isIPv6, "test", test.ports, test.sharingKey, "")
+			if test.wantErr {
+				assert.Errorf(tt, err, "%s: should have caused an error, but did not", test.desc)
+				return
+			}
+
+			assert.NoErrorf(tt, err, "%s: AllocateFromPool(%q, \"test\"): %s", test.desc, test.svc, err)
+
+			validIPs := validIP4s
+			if test.isIPv6 {
+				validIPs = validIP6s
+			}
+
+			assert.Truef(tt, validIPs[ip.String()], "%s: allocated unexpected IP %q", test.desc, ip)
+		})
 	}
 
 	alloc.Unassign("s5")
-	if _, err := alloc.AllocateFromPool("s5", false, "nonexistentpool", nil, "", ""); err == nil {
-		t.Error("Allocating from non-existent pool succeeded")
-	}
+	_, err := alloc.AllocateFromPool("s5", false, "nonexistentpool", nil, "", "");
+	assert.Errorf(t, err, "Allocating from non-existent pool succeeded")
 }
 
 func TestAllocation(t *testing.T) {
@@ -806,6 +809,89 @@ func TestAllocation(t *testing.T) {
 	}
 }
 
+func TestDynamicAllocation(t *testing.T) {
+	alloc := New()
+	if err := alloc.SetPools(map[string]*config.Pool{
+		"test": {
+			AutoAssign: true,
+			Protocol:   config.IPAM,
+		},
+	}); err != nil {
+		t.Fatalf("SetPools: %s", err)
+	}
+
+	tests := []struct {
+		desc    string
+		svc     string
+		res     []ipam.IPAddressReservation
+		resErr  error
+		wantErr bool
+	}{
+		{
+			desc: "s1 gets an IP",
+			svc:  "s1",
+		},
+		{
+			desc:    "s1 cant get an IP due to ipam error",
+			svc:     "s1",
+			resErr:  errors.New("some reservation error"),
+			wantErr: true,
+		},
+		{
+			desc:    "s1 cant get an IP due to incorrect reservation count",
+			svc:     "s1",
+			res: []ipam.IPAddressReservation{
+				{
+					Address: "1.2.3.4",
+				},
+				{
+					Address: "4.3.2.1",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			desc:    "s1 cant get an IP due to incorrect reservation address format",
+			svc:     "s1",
+			res: []ipam.IPAddressReservation{
+				{
+					Address: "a.b.c.d",
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(tt *testing.T) {
+			state := &fake.State{}
+
+			state.ReserveIPsError = test.resErr
+			if test.res == nil {
+				test.res = []ipam.IPAddressReservation{
+					{
+						Address: "1.2.3.4",
+					},
+				}
+			}
+
+			state.ReservationsToReturn = test.res
+
+			fake.SetState(state)
+			alloc.pools["test"].IPAM = fake.GetFakeIPAMAgent()
+
+			ip, err := alloc.Allocate(test.svc, false, []Port{}, "", "")
+			if test.wantErr {
+				assert.Error(tt, err)
+				return
+			}
+
+			assert.NoError(tt, err)
+			assert.NotNil(tt, ip)
+		})
+	}
+}
+
 func TestBuggyIPs(t *testing.T) {
 	alloc := New()
 	if err := alloc.SetPools(map[string]*config.Pool{
@@ -857,22 +943,17 @@ func TestBuggyIPs(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		ip, err := alloc.Allocate(test.svc, false, nil, "", "")
-		if test.wantErr {
-			if err == nil {
-				t.Errorf("#%d should have caused an error, but did not", i+1)
-
+		t.Run(test.svc, func(tt *testing.T) {
+			ip, err := alloc.Allocate(test.svc, false, nil, "", "")
+			if test.wantErr {
+				assert.Errorf(tt, err, "#%d should have caused an error, but did not", i+1)
+				return
 			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("#%d Allocate(%q, \"test\"): %s", i+1, test.svc, err)
-		}
-		if !validIPs[ip.String()] {
-			t.Errorf("#%d allocated unexpected IP %q", i+1, ip)
-		}
-	}
 
+			assert.NoErrorf(tt, err, "#%d Allocate(%q, \"test\"): %s", i+1, test.svc, err)
+			assert.Truef(tt, validIPs[ip.String()], "#%d allocated unexpected IP %q", i+1, ip)
+		})
+	}
 }
 
 func TestConfigReload(t *testing.T) {
@@ -1035,18 +1116,17 @@ func TestConfigReload(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		err := alloc.SetPools(test.pools)
-		if test.wantErr {
-			if err == nil {
-				t.Errorf("%q should have failed to SetPools, but succeeded", test.desc)
+		t.Run(test.desc, func(tt *testing.T) {
+			err := alloc.SetPools(test.pools)
+			if test.wantErr {
+				assert.Errorf(tt, err, "%q should have failed to SetPools, but succeeded", test.desc)
+				return
 			}
-		} else if err != nil {
-			t.Errorf("%q failed to SetPools: %s", test.desc, err)
-		}
-		gotPool := alloc.Pool("s1")
-		if gotPool != test.pool {
-			t.Errorf("%q: s1 is in wrong pool, want %q, got %q", test.desc, test.pool, gotPool)
-		}
+
+			assert.NoErrorf(tt, err, "%q failed to SetPools: %s", test.desc, err)
+			gotPool := alloc.Pool("s1")
+			assert.Equalf(tt, test.pool, gotPool, "%q: s1 is in wrong pool, want %q, got %q", test.desc, test.pool, gotPool)
+		})
 	}
 }
 
@@ -1152,27 +1232,26 @@ func TestAutoAssign(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		if test.unassign {
-			alloc.Unassign(test.svc)
-			continue
-		}
-		ip, err := alloc.Allocate(test.svc, test.isIPv6, nil, "", "")
-		if test.wantErr {
-			if err == nil {
-				t.Errorf("#%d should have caused an error, but did not", i+1)
+		t.Run(test.svc, func(tt *testing.T) {
+			if test.unassign {
+				alloc.Unassign(test.svc)
+				return
 			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("#%d Allocate(%q, \"test\"): %s", i+1, test.svc, err)
-		}
-		validIPs := validIP4s
-		if test.isIPv6 {
-			validIPs = validIP6s
-		}
-		if !validIPs[ip.String()] {
-			t.Errorf("#%d allocated unexpected IP %q", i+1, ip)
-		}
+
+			ip, err := alloc.Allocate(test.svc, test.isIPv6, nil, "", "")
+			if test.wantErr {
+				assert.Errorf(tt, err, "#%d should have caused an error, but did not", i+1)
+				return
+			}
+
+			assert.NoErrorf(tt, err, "#%d Allocate(%q, \"test\"): %s", i+1, test.svc, err)
+			validIPs := validIP4s
+			if test.isIPv6 {
+				validIPs = validIP6s
+			}
+
+			assert.Truef(tt, validIPs[ip.String()], "#%d allocated unexpected IP %q", i+1, ip)
+		})
 	}
 }
 
@@ -1219,10 +1298,10 @@ func TestPoolCount(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		got := poolCount(test.pool)
-		if test.want != got {
-			t.Errorf("%q: wrong pool count, want %d, got %d", test.desc, test.want, got)
-		}
+		t.Run(test.desc, func(tt *testing.T) {
+			got := poolCount(test.pool)
+			assert.Equalf(tt, test.want, got, "%q: wrong pool count, want %d, got %d", test.desc, test.want, got)
+		})
 	}
 }
 

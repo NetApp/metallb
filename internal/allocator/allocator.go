@@ -3,6 +3,7 @@ package allocator // import "go.universe.tf/metallb/internal/allocator"
 import (
 	"errors"
 	"fmt"
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
 	"math"
 	"net"
 	"strings"
@@ -236,6 +237,42 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 		return nil, fmt.Errorf("unknown pool %q", poolName)
 	}
 
+	var ip net.IP
+	var err error
+	if pool.Protocol == config.IPAM {
+		ip, err = a.allocateFromDynamicPool(pool, poolName)
+	} else {
+		ip, err = a.allocateFromStaticPool(pool, isIPv6, svc, ports, sharingKey, backendKey)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to allocate available IPs from pool %q, %w", poolName, err)
+	}
+
+	return ip, nil
+}
+
+func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, poolName string) (net.IP, error) {
+	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, []string{"f0:10:98:9d:dd:13"})
+	if err != nil {
+		return nil, fmt.Errorf("unable to reserve IPs from pool %q, %s", poolName, err)
+	}
+
+	if len(res) != 1 {
+		return nil, fmt.Errorf("received the wrong number of reservations, expected only 1 but got %d", len(res))
+	}
+
+	resIP := res[0].Address
+	ip := net.ParseIP(resIP)
+
+	if ip == nil {
+		return nil, fmt.Errorf("unable to parse ip from reservation: %s", resIP)
+	}
+
+	return ip, nil
+}
+
+func (a *Allocator) allocateFromStaticPool(pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string) (net.IP, error) {
 	for _, cidr := range pool.CIDR {
 		if cidrIsIPv6(cidr) != isIPv6 {
 			// Not the right ip-family
@@ -255,8 +292,7 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 		}
 	}
 
-	// Woops, run out of IPs :( Fail.
-	return nil, fmt.Errorf("no available IPs in pool %q", poolName)
+	return nil, errors.New("no available IPs")
 }
 
 // Allocate assigns any available and assignable IP to service.
@@ -358,6 +394,11 @@ func poolFor(pools map[string]*config.Pool, ip net.IP) string {
 		if p.AvoidBuggyIPs && ipConfusesBuggyFirmwares(ip) {
 			continue
 		}
+
+		if p.Protocol == config.IPAM {
+			return pname
+		}
+		
 		for _, cidr := range p.CIDR {
 			if cidr.Contains(ip) {
 				return pname
