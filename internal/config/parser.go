@@ -55,9 +55,22 @@ func (cp Parser) Parse(bs []byte) (*Config, error) {
 
 	var allCIDRs []*net.IPNet
 	for i, p := range raw.Pools {
-		pool, err := cp.parseAddressPool(p, communities)
-		if err != nil {
-			return nil, fmt.Errorf("parsing address pool #%d: %s", i+1, err)
+		if p.Name == "" {
+			return nil, fmt.Errorf("pool #%d is missing name", i+1)
+		}
+
+		var pool *Pool
+		var err error
+		if p.Protocol == IPAM {
+			pool, err = cp.parseDynamicAddressPool(p, communities)
+			if err != nil {
+				return nil, fmt.Errorf("parsing dynamic address pools: %s, %w", p.Name, err)
+			}
+		} else {
+			pool, err = cp.parseAddressPool(p, communities)
+			if err != nil {
+				return nil, fmt.Errorf("parsing address pool %s %w", p.Name, err)
+			}
 		}
 
 		// Check that the pool isn't already defined
@@ -79,6 +92,31 @@ func (cp Parser) Parse(bs []byte) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (cp Parser) createIPAMAgent(p addressPool) (ipam.Agent, error) {
+	config, err := cp.loadIPAMConfig(p.IPAM)
+	if err != nil {
+		return nil, fmt.Errorf("parsing ipam agent secret: %w", err)
+	}
+
+	agent, err := factory.GetAgent(config)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create ipam agent: %w", err)
+	}
+	return agent, nil
+}
+
+func (cp Parser) findPool(pools []ipam.IPPool, p addressPool) *ipam.IPPool {
+	for _, pool := range pools {
+		for _, nt := range pool.NetworkTypes {
+			if nt == ipam.NetworkType(p.Name) {
+				return &pool
+			}
+		}
+	}
+
+	return nil
 }
 
 func (cp Parser) parseNodeSelector(ns *nodeSelector) (labels.Selector, error) {
@@ -183,11 +221,29 @@ func (cp Parser) parsePeer(p peer) (*Peer, error) {
 	}, nil
 }
 
-func (cp Parser) parseAddressPool(p addressPool, bgpCommunities map[string]uint32) (*Pool, error) {
-	if p.Name == "" {
-		return nil, errors.New("missing pool name")
+func (cp Parser) parseDynamicAddressPool(p addressPool, bgpCommunities map[string]uint32) (*Pool, error) {
+	agent, err := cp.createIPAMAgent(p)
+	if err != nil {
+		return nil, fmt.Errorf("error creating ipam agent for pool %s: %w", p.Name, err)
 	}
 
+	ipamPools, err := agent.ListIPPools()
+	ipamPool := cp.findPool(ipamPools, p)
+	if ipamPool == nil {
+		return nil, fmt.Errorf("unable to find configured pool in ipam system for pool %s", p.Name)
+	}
+	p.Addresses = []string{fmt.Sprintf("%s-%s", ipamPool.IPAddressRange.StartIP, ipamPool.IPAddressRange.EndIP)}
+
+	pool, err := cp.parseAddressPool(p, bgpCommunities)
+	if err != nil {
+		return nil, fmt.Errorf("parsing address pool %s: %w", p.Name, err)
+	}
+	pool.IPAM = agent
+
+	return pool, nil
+}
+
+func (cp Parser) parseAddressPool(p addressPool, bgpCommunities map[string]uint32) (*Pool, error) {
 	ret := &Pool{
 		Protocol:      p.Protocol,
 		AvoidBuggyIPs: p.AvoidBuggyIPs,
@@ -210,7 +266,7 @@ func (cp Parser) parseAddressPool(p addressPool, bgpCommunities map[string]uint3
 	}
 
 	switch ret.Protocol {
-	case Layer2:
+	case Layer2,IPAM:
 		if len(p.BGPAdvertisements) > 0 {
 			return nil, errors.New("cannot have bgp-advertisements configuration element in a layer2 address pool")
 		}
@@ -220,17 +276,6 @@ func (cp Parser) parseAddressPool(p addressPool, bgpCommunities map[string]uint3
 			return nil, fmt.Errorf("parsing BGP communities: %s", err)
 		}
 		ret.BGPAdvertisements = ads
-	case IPAM:
-		config, err := cp.loadIPAMConfig(p.IPAM)
-		if err != nil {
-			return nil, fmt.Errorf("parsing ipam agent secret: %w", err)
-		}
-
-		agent, err := factory.GetAgent(config)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create ipam agent: %w", err)
-		}
-		ret.IPAM = agent
 	case "":
 		return nil, errors.New("address pool is missing the protocol field")
 	default:

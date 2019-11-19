@@ -1,6 +1,7 @@
 package config
 
 import (
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
 	fake2 "github.com/NetApp/nks-on-prem-ipam/pkg/ipam/fake"
 	"github.com/google/go-cmp/cmp"
 	v1 "k8s.io/api/core/v1"
@@ -33,6 +34,24 @@ func ipnet(s string) *net.IPNet {
 }
 
 func TestParse(t *testing.T) {
+	state := &fake2.State{
+		ReservationsToReturn: []ipam.IPAddressReservation{
+			{
+				Address: "1.2.3.4",
+			},
+		},
+		IPPoolsToReturn: []ipam.IPPool{
+			{
+				NetworkTypes: []ipam.NetworkType{"ipam-agent"},
+				IPAddressRange: ipam.IPAddressRange {
+					StartIP: "1.2.3.1",
+					EndIP: "1.2.3.10",
+				},
+			},
+		},
+	}
+	fake2.SetState(state)
+
 	tests := []struct {
 		desc   string
 		secret *v1.Secret
@@ -617,6 +636,13 @@ address-pools:
 					"ipam-agent": {
 						Protocol:   IPAM,
 						AutoAssign: true,
+						CIDR: []*net.IPNet{
+							ipnet("1.2.3.1/32"),
+							ipnet("1.2.3.2/31"),
+							ipnet("1.2.3.4/30"),
+							ipnet("1.2.3.8/31"),
+							ipnet("1.2.3.10/32"),
+						},
 						IPAM:       fake2.GetFakeIPAMAgent(),
 					},
 				},
@@ -675,6 +701,13 @@ address-pools:
 					"ipam-agent": {
 						Protocol:   IPAM,
 						AutoAssign: true,
+						CIDR: []*net.IPNet{
+							ipnet("1.2.3.1/32"),
+							ipnet("1.2.3.2/31"),
+							ipnet("1.2.3.4/30"),
+							ipnet("1.2.3.8/31"),
+							ipnet("1.2.3.10/32"),
+						},
 						IPAM:       fake2.GetFakeIPAMAgent(),
 					},
 				},
@@ -732,6 +765,8 @@ address-pools:
 			if test.secret == nil {
 				test.secret = &v1.Secret{}
 			}
+
+
 
 			parser := NewParser(fake.NewSimpleClientset(test.secret))
 			got, err := parser.Parse([]byte(test.raw))

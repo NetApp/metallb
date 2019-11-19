@@ -156,6 +156,10 @@ func newController(cfg controllerConfig) (*controller, error) {
 			announcer: a,
 			myNode:    cfg.MyNode,
 		}
+		protocols[config.IPAM] = &layer2Controller{
+			announcer: a,
+			myNode:    cfg.MyNode,
+		}
 	}
 
 	ret := &controller{
