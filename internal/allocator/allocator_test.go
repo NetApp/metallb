@@ -602,7 +602,7 @@ func TestPoolAllocation(t *testing.T) {
 	}
 
 	alloc.Unassign("s5")
-	_, err := alloc.AllocateFromPool("s5", false, "nonexistentpool", nil, "", "");
+	_, err := alloc.AllocateFromPool("s5", false, "nonexistentpool", nil, "", "")
 	assert.Errorf(t, err, "Allocating from non-existent pool succeeded")
 }
 
@@ -838,8 +838,8 @@ func TestDynamicAllocation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			desc:    "s1 cant get an IP due to incorrect reservation count",
-			svc:     "s1",
+			desc: "s1 cant get an IP due to incorrect reservation count",
+			svc:  "s1",
 			res: []ipam.IPAddressReservation{
 				{
 					Address: "1.2.3.4",
@@ -851,8 +851,8 @@ func TestDynamicAllocation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			desc:    "s1 cant get an IP due to incorrect reservation address format",
-			svc:     "s1",
+			desc: "s1 cant get an IP due to incorrect reservation address format",
+			svc:  "s1",
 			res: []ipam.IPAddressReservation{
 				{
 					Address: "a.b.c.d",

@@ -1,15 +1,16 @@
 package allocator // import "go.universe.tf/metallb/internal/allocator"
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
 	"math"
 	"net"
 	"strings"
 
 	"go.universe.tf/metallb/internal/config"
 
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
 	"github.com/mikioh/ipaddr"
 )
 
@@ -253,18 +254,22 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 }
 
 func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, poolName string) (net.IP, error) {
-	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, []string{"f0:10:98:9d:dd:13"})
+	mac, err := randomMAC()
 	if err != nil {
-		return nil, fmt.Errorf("unable to reserve IPs from pool %q, %s", poolName, err)
+		return nil, fmt.Errorf("unable to create mac address for reservation in pool %q, %w", poolName, err)
+	}
+
+	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, []string{mac})
+	if err != nil {
+		return nil, fmt.Errorf("unable to reserve IPs from pool %q, %w", poolName, err)
 	}
 
 	if len(res) != 1 {
-		return nil, fmt.Errorf("received the wrong number of reservations, expected only 1 but got %d", len(res))
+		return nil, fmt.Errorf("received the wrong number of reservations, expected eactly 1 but got %d", len(res))
 	}
 
 	resIP := res[0].Address
 	ip := net.ParseIP(resIP)
-
 	if ip == nil {
 		return nil, fmt.Errorf("unable to parse ip from reservation: %s", resIP)
 	}
@@ -398,7 +403,7 @@ func poolFor(pools map[string]*config.Pool, ip net.IP) string {
 		if p.Protocol == config.IPAM {
 			return pname
 		}
-		
+
 		for _, cidr := range p.CIDR {
 			if cidr.Contains(ip) {
 				return pname
@@ -430,4 +435,16 @@ func ipConfusesBuggyFirmwares(ip net.IP) bool {
 		return false
 	}
 	return ip[3] == 0 || ip[3] == 255
+}
+
+func randomMAC() (string, error) {
+	buf := make([]byte, 6)
+	_, err := rand.Read(buf)
+	if err != nil {
+		return "", fmt.Errorf("unable to generate random mac address, %w", err)
+	}
+	// Set the local bit
+	buf[0] |= 2
+	mac := fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5])
+	return mac, nil
 }
