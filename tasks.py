@@ -71,7 +71,7 @@ def _make_build_dirs():
           "tag": "docker image tag prefix to use. Actual tag will be <tag>-<arch>. Default 'dev'.",
           "docker-user": "docker user under which to tag the images. Default 'metallb'.",
       })
-def build(ctx, binaries, architectures, tag="dev", docker_user="metallb"):
+def build(ctx, binaries, architectures, tag="dev", docker_user="gcr.io/nks-images/metallb"):
     """Build MetalLB docker images."""
     binaries = _check_binaries(binaries)
     architectures = _check_architectures(architectures)
@@ -100,7 +100,7 @@ def build(ctx, binaries, architectures, tag="dev", docker_user="metallb"):
                 env=env,
                 echo=True)
             run("docker build "
-                "-t {user}/{bin}:{tag}-{arch} "
+                "-t {user}/{bin}:{tag} "
                 "-f {bin}/Dockerfile build/{arch}/{bin}".format(
                     user=docker_user,
                     bin=bin,

@@ -241,7 +241,7 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 	var ip net.IP
 	var err error
 	if pool.Protocol == config.IPAM {
-		ip, err = a.allocateFromDynamicPool(pool, poolName)
+		ip, err = a.allocateFromDynamicPool(pool, isIPv6, svc, ports, sharingKey, backendKey, poolName)
 	} else {
 		ip, err = a.allocateFromStaticPool(pool, isIPv6, svc, ports, sharingKey, backendKey)
 	}
@@ -253,13 +253,8 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 	return ip, nil
 }
 
-func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, poolName string) (net.IP, error) {
-	mac, err := randomMAC()
-	if err != nil {
-		return nil, fmt.Errorf("unable to create mac address for reservation in pool %q, %w", poolName, err)
-	}
-
-	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, []string{mac})
+func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string, poolName string) (net.IP, error) {
+	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to reserve IPs from pool %q, %w", poolName, err)
 	}
@@ -272,6 +267,10 @@ func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, poolName string) 
 	ip := net.ParseIP(resIP)
 	if ip == nil {
 		return nil, fmt.Errorf("unable to parse ip from reservation: %s", resIP)
+	}
+
+	if err := a.Assign(svc, ip, ports, sharingKey, backendKey); err != nil {
+		return nil, fmt.Errorf("unable to assign ip: %s from dynamic pool: %s, %v", ip.String(), poolName, err)
 	}
 
 	return ip, nil

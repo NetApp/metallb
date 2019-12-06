@@ -26,7 +26,7 @@ import (
 	"go.universe.tf/metallb/internal/layer2"
 	"go.universe.tf/metallb/internal/logging"
 	"go.universe.tf/metallb/internal/version"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 
 	"github.com/go-kit/kit/log"
 	"github.com/prometheus/client_golang/prometheus"
@@ -280,6 +280,11 @@ func (c *controller) deleteBalancer(l log.Logger, name, reason string) k8s.SyncS
 
 func poolFor(pools map[string]*config.Pool, ip net.IP) string {
 	for pname, p := range pools {
+
+		if p.Protocol == config.IPAM {
+			return pname
+		}
+
 		for _, cidr := range p.CIDR {
 			if cidr.Contains(ip) {
 				return pname
