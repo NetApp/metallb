@@ -320,6 +320,35 @@ func (a *Allocator) Allocate(svc string, isIPv6 bool, ports []Port, sharingKey, 
 	return nil, errors.New("no available IPs")
 }
 
+// UnAllocate releases IPs associated with a service if the pool being used is pointing to external IPAM
+func (a *Allocator) UnAllocate(svc string) error {
+	svcIP := a.IP(svc)
+	if svcIP == nil {
+		return nil
+	}
+
+	poolName := a.Pool(svc)
+	if poolName == "" {
+		return nil
+	}
+
+	pool, poolFound := a.pools[poolName]
+	if !poolFound {
+		return nil
+	}
+
+	// No need to release IP if pool is not using external IPAM
+	if pool.Protocol != config.IPAM {
+		return nil
+	}
+
+	if err := pool.IPAM.ReleaseIPs(ipam.NetworkType(poolName), []string{svcIP.String()}); err != nil {
+		return fmt.Errorf("unable to release static IP: %s from pool: %s, %v", svcIP.String(), poolName, err)
+	}
+
+	return nil
+}
+
 // IP returns the IP address allocated to service, or nil if none are allocated.
 func (a *Allocator) IP(svc string) net.IP {
 	if alloc := a.allocated[svc]; alloc != nil {
