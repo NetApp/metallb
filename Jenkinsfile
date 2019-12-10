@@ -36,11 +36,13 @@ pipeline {
         ).trim()
       }
       steps {
+        container('golang') {
+          sh("make build")
+        }
         container('builder-base') {
-          // We need to provide a personal access token to fetch private dependencies
-          sh("inv build --tag ${GIT_COMMIT_SHORT}")
           script {
-            image = docker.build("${CONTROLLER_REPOSITORY}", "--build-arg GITHUB_TOKEN=${GITHUB_TOKEN} .")
+            controllerimage = docker.build("${CONTROLLER_REPOSITORY}", "-f controller/Dockerfile build/amd64/controller")
+            speakerimage = docker.build("${SPEAKER_REPOSITORY}", "-f speaker/Dockerfile build/amd64/speaker")
           }
         }
       }
