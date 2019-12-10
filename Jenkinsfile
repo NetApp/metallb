@@ -29,10 +29,16 @@ pipeline {
           branch 'PR-*'
         }
       }
+      environment {
+        GIT_COMMIT_SHORT = sh(
+                script: "printf \$(git rev-parse --short ${GIT_COMMIT})",
+                returnStdout: true
+        ).trim()
+      }
       steps {
         container('builder-base') {
           // We need to provide a personal access token to fetch private dependencies
-          sh("go build -v -o build/amd64/controller/controller -ldflags '-X go.universe.tf/metallb/internal/version.gitCommit=6ea9bc6e-dirty -X go.universe.tf/metallb/internal/version.gitBranch=task/introduce-dynamic-addresses' go.universe.tf/metallb/controller")
+          sh("inv build --tag ${GIT_COMMIT_SHORT}")
           script {
             image = docker.build("${CONTROLLER_REPOSITORY}", "--build-arg GITHUB_TOKEN=${GITHUB_TOKEN} .")
           }
