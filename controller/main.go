@@ -27,7 +27,7 @@ import (
 	"go.universe.tf/metallb/internal/version"
 
 	"github.com/go-kit/kit/log"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 )
 
 // Service offers methods to mutate a Kubernetes service object.
@@ -99,6 +99,10 @@ func (c *controller) SetBalancer(l log.Logger, name string, svcRo *v1.Service, _
 }
 
 func (c *controller) deleteBalancer(l log.Logger, name string) {
+	if err := c.ips.UnAllocate(name); err != nil {
+		l.Log("bug", "IPReleaseFailed", "error", err)
+	}
+
 	if c.ips.Unassign(name) {
 		l.Log("event", "serviceDeleted", "msg", "service deleted")
 	}

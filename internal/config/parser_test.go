@@ -1,13 +1,21 @@
 package config
 
 import (
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
+	fake2 "github.com/NetApp/nks-on-prem-ipam/pkg/ipam/fake"
+	"github.com/google/go-cmp/cmp"
+	v1 "k8s.io/api/core/v1"
+	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/kubernetes/fake"
 	"net"
 	"testing"
 	"time"
-
-	"github.com/google/go-cmp/cmp"
-	"k8s.io/apimachinery/pkg/labels"
 )
+
+var fakeProvider = `{
+  "provider":"Fake"
+}`
 
 func selector(s string) labels.Selector {
 	ret, err := labels.Parse(s)
@@ -26,13 +34,32 @@ func ipnet(s string) *net.IPNet {
 }
 
 func TestParse(t *testing.T) {
+	state := &fake2.State{
+		ReservationsToReturn: []ipam.IPAddressReservation{
+			{
+				Address: "1.2.3.4",
+			},
+		},
+		IPPoolsToReturn: []ipam.IPPool{
+			{
+				NetworkTypes: []ipam.NetworkType{"ipam-agent"},
+				IPAddressRange: ipam.IPAddressRange {
+					StartIP: "1.2.3.1",
+					EndIP: "1.2.3.10",
+				},
+			},
+		},
+	}
+	fake2.SetState(state)
+
 	tests := []struct {
-		desc string
-		raw  string
-		want *Config
+		desc   string
+		secret *v1.Secret
+		raw    string
+		want   *Config
 	}{
 		{
-			desc: "empty config",
+			desc: "empty secret",
 			raw:  "",
 			want: &Config{
 				Pools: map[string]*Pool{},
@@ -45,7 +72,7 @@ func TestParse(t *testing.T) {
 		},
 
 		{
-			desc: "config using all features",
+			desc: "secret using all features",
 			raw: `
 peers:
 - my-asn: 42
@@ -595,11 +622,154 @@ address-pools:
   - communities: ["flarb"]
 `,
 		},
+		{
+			desc: "IPAM Agent backed pool",
+			secret: &v1.Secret{
+				ObjectMeta: v12.ObjectMeta{
+					Namespace: "test",
+					Name:      "yo",
+				},
+				Data: map[string][]byte{"config.json": []byte(fakeProvider)},
+			},
+			want: &Config{
+				Pools: map[string]*Pool{
+					"ipam-agent": {
+						Protocol:   IPAM,
+						AutoAssign: true,
+						CIDR: []*net.IPNet{
+							ipnet("1.2.3.1/32"),
+							ipnet("1.2.3.2/31"),
+							ipnet("1.2.3.4/30"),
+							ipnet("1.2.3.8/31"),
+							ipnet("1.2.3.10/32"),
+						},
+						IPAM:       fake2.GetFakeIPAMAgent(),
+					},
+				},
+			},
+			raw: `
+address-pools:
+- name: ipam-agent 
+  protocol: ipam 
+  ipam:
+    secret-name: yo
+    namespace: test
+`,
+		},
+		{
+			desc: "IPAM Agent secret not found pool",
+			raw: `
+address-pools:
+- name: ipam-agent 
+  protocol: ipam 
+  ipam:
+    secret-name: yo
+    namespace: test
+`,
+		},
+		{
+			desc: "IPAM Agent secret name not specified ",
+			raw: `
+address-pools:
+- name: ipam-agent 
+  protocol: ipam 
+  ipam:
+    namespace: test
+`,
+		},
+		{
+			desc: "IPAM Agent namespace not specified ",
+			raw: `
+address-pools:
+- name: ipam-agent 
+  protocol: ipam 
+  ipam:
+    secret-name: yo
+`,
+		},
+		{
+			desc: "IPAM Agent override default secret key",
+			secret: &v1.Secret{
+				ObjectMeta: v12.ObjectMeta{
+					Namespace: "test",
+					Name:      "yo",
+				},
+				Data: map[string][]byte{"new-key.json": []byte(fakeProvider)},
+			},
+			want: &Config{
+				Pools: map[string]*Pool{
+					"ipam-agent": {
+						Protocol:   IPAM,
+						AutoAssign: true,
+						CIDR: []*net.IPNet{
+							ipnet("1.2.3.1/32"),
+							ipnet("1.2.3.2/31"),
+							ipnet("1.2.3.4/30"),
+							ipnet("1.2.3.8/31"),
+							ipnet("1.2.3.10/32"),
+						},
+						IPAM:       fake2.GetFakeIPAMAgent(),
+					},
+				},
+			},
+			raw: `
+address-pools:
+- name: ipam-agent 
+  protocol: ipam 
+  ipam:
+    secret-name: yo
+    namespace: test
+    secret-key: new-key.json
+`,
+		},
+		{
+			desc: "IPAM Agent key not found in secret",
+			secret: &v1.Secret{
+				ObjectMeta: v12.ObjectMeta{
+					Namespace: "test",
+					Name:      "yo",
+				},
+				Data: map[string][]byte{"badly-configured.json": []byte(fakeProvider)},
+			},
+			raw: `
+address-pools:
+- name: ipam-agent 
+  protocol: ipam 
+  ipam:
+    secret-name: yo
+    namespace: test
+`,
+		},
+		{
+			desc: "IPAM Agent configuration parse error",
+			secret: &v1.Secret{
+				ObjectMeta: v12.ObjectMeta{
+					Namespace: "test",
+					Name:      "yo",
+				},
+				Data: map[string][]byte{"config.json": []byte(`{"bad-json"'}`)},
+			},
+			raw: `
+address-pools:
+- name: ipam-agent 
+  protocol: ipam 
+  ipam:
+    secret-name: yo
+    namespace: test
+`,
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			got, err := Parse([]byte(test.raw))
+			if test.secret == nil {
+				test.secret = &v1.Secret{}
+			}
+
+
+
+			parser := NewParser(fake.NewSimpleClientset(test.secret))
+			got, err := parser.Parse([]byte(test.raw))
 			if err != nil && test.want != nil {
 				t.Errorf("%q: parse failed: %s", test.desc, err)
 				return

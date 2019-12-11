@@ -1,6 +1,7 @@
 package allocator // import "go.universe.tf/metallb/internal/allocator"
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 
 	"go.universe.tf/metallb/internal/config"
 
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
 	"github.com/mikioh/ipaddr"
 )
 
@@ -236,6 +238,45 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 		return nil, fmt.Errorf("unknown pool %q", poolName)
 	}
 
+	var ip net.IP
+	var err error
+	if pool.Protocol == config.IPAM {
+		ip, err = a.allocateFromDynamicPool(pool, isIPv6, svc, ports, sharingKey, backendKey, poolName)
+	} else {
+		ip, err = a.allocateFromStaticPool(pool, isIPv6, svc, ports, sharingKey, backendKey)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to allocate available IPs from pool %q, %w", poolName, err)
+	}
+
+	return ip, nil
+}
+
+func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string, poolName string) (net.IP, error) {
+	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, nil)
+	if err != nil {
+		return nil, fmt.Errorf("unable to reserve IPs from pool %q, %w", poolName, err)
+	}
+
+	if len(res) != 1 {
+		return nil, fmt.Errorf("received the wrong number of reservations, expected eactly 1 but got %d", len(res))
+	}
+
+	resIP := res[0].Address
+	ip := net.ParseIP(resIP)
+	if ip == nil {
+		return nil, fmt.Errorf("unable to parse ip from reservation: %s", resIP)
+	}
+
+	if err := a.Assign(svc, ip, ports, sharingKey, backendKey); err != nil {
+		return nil, fmt.Errorf("unable to assign ip: %s from dynamic pool: %s, %v", ip.String(), poolName, err)
+	}
+
+	return ip, nil
+}
+
+func (a *Allocator) allocateFromStaticPool(pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string) (net.IP, error) {
 	for _, cidr := range pool.CIDR {
 		if cidrIsIPv6(cidr) != isIPv6 {
 			// Not the right ip-family
@@ -255,8 +296,7 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 		}
 	}
 
-	// Woops, run out of IPs :( Fail.
-	return nil, fmt.Errorf("no available IPs in pool %q", poolName)
+	return nil, errors.New("no available IPs")
 }
 
 // Allocate assigns any available and assignable IP to service.
@@ -278,6 +318,35 @@ func (a *Allocator) Allocate(svc string, isIPv6 bool, ports []Port, sharingKey, 
 	}
 
 	return nil, errors.New("no available IPs")
+}
+
+// UnAllocate releases IPs associated with a service if the pool being used is pointing to external IPAM
+func (a *Allocator) UnAllocate(svc string) error {
+	svcIP := a.IP(svc)
+	if svcIP == nil {
+		return nil
+	}
+
+	poolName := a.Pool(svc)
+	if poolName == "" {
+		return nil
+	}
+
+	pool, poolFound := a.pools[poolName]
+	if !poolFound {
+		return nil
+	}
+
+	// No need to release IP if pool is not using external IPAM
+	if pool.Protocol != config.IPAM {
+		return nil
+	}
+
+	if err := pool.IPAM.ReleaseIPs(ipam.NetworkType(poolName), []string{svcIP.String()}); err != nil {
+		return fmt.Errorf("unable to release static IP: %s from pool: %s, %v", svcIP.String(), poolName, err)
+	}
+
+	return nil
 }
 
 // IP returns the IP address allocated to service, or nil if none are allocated.
@@ -358,6 +427,11 @@ func poolFor(pools map[string]*config.Pool, ip net.IP) string {
 		if p.AvoidBuggyIPs && ipConfusesBuggyFirmwares(ip) {
 			continue
 		}
+
+		if p.Protocol == config.IPAM {
+			return pname
+		}
+
 		for _, cidr := range p.CIDR {
 			if cidr.Contains(ip) {
 				return pname
@@ -389,4 +463,16 @@ func ipConfusesBuggyFirmwares(ip net.IP) bool {
 		return false
 	}
 	return ip[3] == 0 || ip[3] == 255
+}
+
+func randomMAC() (string, error) {
+	buf := make([]byte, 6)
+	_, err := rand.Read(buf)
+	if err != nil {
+		return "", fmt.Errorf("unable to generate random mac address, %w", err)
+	}
+	// Set the local bit
+	buf[0] |= 2
+	mac := fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5])
+	return mac, nil
 }

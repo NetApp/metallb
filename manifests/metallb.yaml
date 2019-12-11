@@ -132,6 +132,12 @@ rules:
   - create
   - patch
 - apiGroups:
+    - ''
+  resources:
+    - secrets
+  verbs:
+    - get
+- apiGroups:
   - extensions
   resourceNames:
   - controller
@@ -164,6 +170,12 @@ rules:
   verbs:
   - create
   - patch
+- apiGroups:
+    - ''
+  resources:
+    - secrets
+  verbs:
+    - get
 - apiGroups:
   - extensions
   resourceNames:
@@ -273,7 +285,7 @@ spec:
             fieldRef:
               fieldPath: status.hostIP
         image: metallb/speaker:main
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         name: speaker
         ports:
         - containerPort: 7472
@@ -328,8 +340,8 @@ spec:
       - args:
         - --port=7472
         - --config=config
-        image: metallb/controller:main
-        imagePullPolicy: Always
+        image: gcr.io/nks-images/metallb/controller:arnar-test-12
+        imagePullPolicy: IfNotPresent
         name: controller
         ports:
         - containerPort: 7472

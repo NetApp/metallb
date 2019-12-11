@@ -356,7 +356,8 @@ func (c *Client) sync(key interface{}) SyncState {
 		// config is not going to parse any better until the k8s
 		// object changes to fix the issue.
 		cm := cmi.(*v1.ConfigMap)
-		cfg, err := config.Parse([]byte(cm.Data["config"]))
+		parser := config.NewParser(c.client)
+		cfg, err := parser.Parse([]byte(cm.Data["config"]))
 		if err != nil {
 			l.Log("event", "configStale", "error", err, "msg", "config (re)load failed, config marked stale")
 			configStale.Set(1)

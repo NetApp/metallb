@@ -31,7 +31,7 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 	// in the past, so we still need to clear LB state.
 	if svc.Spec.Type != "LoadBalancer" {
 		l.Log("event", "clearAssignment", "reason", "notLoadBalancer", "msg", "not a LoadBalancer")
-		c.clearServiceState(key, svc)
+		c.clearServiceState(l, key, svc)
 		// Early return, we explicitly do *not* want to reallocate
 		// an IP.
 		return true
@@ -42,7 +42,7 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 	clusterIP := net.ParseIP(svc.Spec.ClusterIP)
 	if clusterIP == nil {
 		l.Log("event", "clearAssignment", "reason", "noClusterIP", "msg", "No ClusterIP")
-		c.clearServiceState(key, svc)
+		c.clearServiceState(l, key, svc)
 		return true
 	}
 
@@ -53,13 +53,13 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 		lbIP = net.ParseIP(svc.Status.LoadBalancer.Ingress[0].IP)
 	}
 	if lbIP == nil {
-		c.clearServiceState(key, svc)
+		c.clearServiceState(l, key, svc)
 	}
 
 	// Clear the lbIP if it has a different ipFamily compared to the clusterIP.
 	// (this should not happen since the "ipFamily" of a service is immutable)
 	if (clusterIP.To4() == nil) != (lbIP.To4() == nil) {
-		c.clearServiceState(key, svc)
+		c.clearServiceState(l, key, svc)
 		lbIP = nil
 	}
 
@@ -71,7 +71,7 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 		// otherwise it'll fail and tell us why.
 		if err := c.ips.Assign(key, lbIP, k8salloc.Ports(svc), k8salloc.SharingKey(svc), k8salloc.BackendKey(svc)); err != nil {
 			l.Log("event", "clearAssignment", "reason", "notAllowedByConfig", "msg", "current IP not allowed by config, clearing")
-			c.clearServiceState(key, svc)
+			c.clearServiceState(l, key, svc)
 			lbIP = nil
 		}
 
@@ -81,7 +81,7 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 		desiredPool := svc.Annotations["metallb.universe.tf/address-pool"]
 		if lbIP != nil && desiredPool != "" && c.ips.Pool(key) != desiredPool {
 			l.Log("event", "clearAssignment", "reason", "differentPoolRequested", "msg", "user requested a different pool than the one currently assigned")
-			c.clearServiceState(key, svc)
+			c.clearServiceState(l, key, svc)
 			lbIP = nil
 		}
 	}
@@ -91,7 +91,7 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 	// to meet the user's demands.
 	if svc.Spec.LoadBalancerIP != "" && svc.Spec.LoadBalancerIP != lbIP.String() {
 		l.Log("event", "clearAssignment", "reason", "differentIPRequested", "msg", "user requested a different IP than the one currently assigned")
-		c.clearServiceState(key, svc)
+		c.clearServiceState(l, key, svc)
 		lbIP = nil
 	}
 
@@ -118,7 +118,7 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 	if lbIP == nil {
 		l.Log("bug", "true", "msg", "internal error: failed to allocate an IP, but did not exit convergeService early!")
 		c.client.Errorf(svc, "InternalError", "didn't allocate an IP but also did not fail")
-		c.clearServiceState(key, svc)
+		c.clearServiceState(l, key, svc)
 		return true
 	}
 
@@ -126,7 +126,7 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 	if pool == "" || c.config.Pools[pool] == nil {
 		l.Log("bug", "true", "ip", lbIP, "msg", "internal error: allocated IP has no matching address pool")
 		c.client.Errorf(svc, "InternalError", "allocated an IP that has no pool")
-		c.clearServiceState(key, svc)
+		c.clearServiceState(l, key, svc)
 		return true
 	}
 
@@ -138,7 +138,10 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 
 // clearServiceState clears all fields that are actively managed by
 // this controller.
-func (c *controller) clearServiceState(key string, svc *v1.Service) {
+func (c *controller) clearServiceState(l log.Logger, key string, svc *v1.Service) {
+	if err := c.ips.UnAllocate(key); err != nil {
+		l.Log("bug", "IPReleaseFailed", "error", err)
+	}
 	c.ips.Unassign(key)
 	svc.Status.LoadBalancer = v1.LoadBalancerStatus{}
 }
