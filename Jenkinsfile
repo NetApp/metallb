@@ -70,9 +70,9 @@ pipeline {
       }
     }
 
-    stage('publish: master') {
+    stage('publish: main') {
       when {
-        branch 'master'
+        branch 'main'
       }
       environment {
         GIT_COMMIT_SHORT = sh(
