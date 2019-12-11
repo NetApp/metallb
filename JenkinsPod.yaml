@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: metallb
+spec:
+  containers:
+  - name: builder-base
+    image: jenkinsxio/builder-base:0.1.215
+    tty: true
+    securityContext:
+      privileged: true
+    command:
+    - cat
+    volumeMounts:
+    - name: socket
+      mountPath: /var/run/docker.sock
+  - name: openapi-generator-cli
+    image: openapitools/openapi-generator-cli:v3.3.4
+    tty: true
+    command:
+    - cat
+  - name: golang
+    image: golang:1.12
+    tty: true
+    command:
+    - cat
+  - name: golangci
+    image: golangci/golangci-lint:v1.16
+    tty: true
+    command:
+    - cat
+  - name: sonar-scanner
+    image: gcr.io/stackpoint-public/sonar-scanner-cli:3.3.0.1492
+    tty: true
+    command:
+    - cat
+  - name: speccy
+    image: wework/speccy
+    tty: true
+    command:
+    - cat
+  volumes:
+    - name: socket
+      hostPath:
+        path: /var/run/docker.sock
