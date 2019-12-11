@@ -2,14 +2,16 @@ package allocator
 
 import (
 	"errors"
-	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
-	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam/fake"
-	"github.com/stretchr/testify/assert"
 	"math"
 	"net"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
+	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam/fake"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.universe.tf/metallb/internal/config"
 )
@@ -832,14 +834,14 @@ func TestDynamicAllocation(t *testing.T) {
 			svc:  "s1",
 		},
 		{
-			desc:    "s1 cant get an IP due to ipam error",
-			svc:     "s1",
+			desc:    "s2 cant get an IP due to ipam error",
+			svc:     "s2",
 			resErr:  errors.New("some reservation error"),
 			wantErr: true,
 		},
 		{
-			desc: "s1 cant get an IP due to incorrect reservation count",
-			svc:  "s1",
+			desc: "s3 cant get an IP due to incorrect reservation count",
+			svc:  "s3",
 			res: []ipam.IPAddressReservation{
 				{
 					Address: "1.2.3.4",
@@ -851,8 +853,8 @@ func TestDynamicAllocation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			desc: "s1 cant get an IP due to incorrect reservation address format",
-			svc:  "s1",
+			desc: "s4 cant get an IP due to incorrect reservation address format",
+			svc:  "s4",
 			res: []ipam.IPAddressReservation{
 				{
 					Address: "a.b.c.d",
@@ -888,6 +890,116 @@ func TestDynamicAllocation(t *testing.T) {
 
 			assert.NoError(tt, err)
 			assert.NotNil(tt, ip)
+		})
+	}
+}
+
+func TestUnAllocation(t *testing.T) {
+	allocWithIPAM := New()
+	if err := allocWithIPAM.SetPools(map[string]*config.Pool{
+		"test": {
+			AutoAssign: true,
+			Protocol:   config.IPAM,
+		},
+	}); err != nil {
+		t.Fatalf("SetPools: %s", err)
+	}
+
+	tests := []struct {
+		desc    string
+		svc     string
+		res     []ipam.IPAddressReservation
+		resErr  error
+		wantErr bool
+	}{
+		{
+			desc: "s1 gets IP released",
+			svc:  "s1",
+			res: []ipam.IPAddressReservation{
+				{
+					Address: "1.2.3.4",
+				},
+			},
+		},
+		{
+			desc: "s2 gets error on release",
+			svc:  "s2",
+			res: []ipam.IPAddressReservation{
+				{
+					Address: "2.3.4.5",
+				},
+			},
+			wantErr: true,
+			resErr:  errors.New("unable to release IP"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(tt *testing.T) {
+			state := &fake.State{}
+
+			state.ReleaseReservationsError = test.resErr
+
+			state.ReservationsToReturn = test.res
+
+			fake.SetState(state)
+			allocWithIPAM.pools["test"].IPAM = fake.GetFakeIPAMAgent()
+
+			ip, err := allocWithIPAM.Allocate(test.svc, false, []Port{}, "", "")
+			require.NoError(tt, err)
+			require.NotNil(tt, ip)
+
+			err = allocWithIPAM.UnAllocate(test.svc)
+			if test.wantErr {
+				require.Error(tt, err)
+				return
+			}
+		})
+	}
+
+	allocNormal := New()
+	if err := allocNormal.SetPools(map[string]*config.Pool{
+		"test": {
+			AutoAssign: true,
+			Protocol:   config.Layer2,
+			CIDR:       []*net.IPNet{ipnet("0.0.0.0/0")},
+		},
+	}); err != nil {
+		t.Fatalf("SetPools: %s", err)
+	}
+
+	testsNotIPAM := []struct {
+		desc      string
+		svc       string
+		res       []ipam.IPAddressReservation
+		wantAlloc bool
+	}{
+		{
+			desc: "s1 has no allocated IP address",
+			svc:  "s1",
+		},
+		{
+			desc: "s2 pool is not IPAM",
+			svc:  "s2",
+			res: []ipam.IPAddressReservation{
+				{
+					Address: "1.2.3.4",
+				},
+			},
+			wantAlloc: true,
+		},
+	}
+
+	for _, test := range testsNotIPAM {
+		t.Run(test.desc, func(tt *testing.T) {
+			if test.wantAlloc {
+				ip, err := allocNormal.Allocate(test.svc, false, []Port{}, "", "")
+				require.NoError(tt, err)
+				require.NotNil(tt, ip)
+			}
+
+			err := allocNormal.UnAllocate(test.svc)
+			require.NoError(tt, err)
 		})
 	}
 }
