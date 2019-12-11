@@ -19,4 +19,4 @@ build:  ## Run go build for speaker and controller
 
 .PHONY: test
 test:  ## Run unit tests
-	go test ./...
+	go test ./... -short
