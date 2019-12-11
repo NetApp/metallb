@@ -40,10 +40,8 @@ pipeline {
           sh("make build")
         }
         container('builder-base') {
-          script {
-            controllerimage = docker.build("${CONTROLLER_REPOSITORY}", "-f controller/Dockerfile build/amd64/controller")
-            speakerimage = docker.build("${SPEAKER_REPOSITORY}", "-f speaker/Dockerfile build/amd64/speaker")
-          }
+          sh("docker build -t ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY} -f - build/amd64/${CONTROLLER} < ${CONTROLLER}/Dockerfile")
+          sh("docker build -t ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY} -f - build/amd64/${SPEAKER} < ${SPEAKER}/Dockerfile")
         }
       }
     }
@@ -62,8 +60,10 @@ pipeline {
         container('builder-base') {
           script {
             docker.withRegistry("https://${DOCKER_REGISTRY}", "gcr:${ORG}") {
-              image.push("dev-${GIT_COMMIT_SHORT}")
-              image.push("dev")
+              sh 'docker tag ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY} ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY}:${GIT_COMMIT_SHORT}-dev'
+              sh 'docker push ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY}:${GIT_COMMIT_SHORT}-dev'
+              sh 'docker tag ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY} ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY}:${GIT_COMMIT_SHORT}-dev'
+              sh 'docker push ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY}:${GIT_COMMIT_SHORT}-dev'
             }
           }
         }
@@ -84,8 +84,10 @@ pipeline {
         container('builder-base') {
           script {
             docker.withRegistry("https://${DOCKER_REGISTRY}", "gcr:${ORG}") {
-              image.push("${API_VERSION}-${GIT_COMMIT_SHORT}")
-              image.push("${API_VERSION}")
+              sh 'docker tag ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY} ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY}:${GIT_COMMIT_SHORT}'
+              sh 'docker push ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY}:${GIT_COMMIT_SHORT}'
+              sh 'docker tag ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY} ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY}:${GIT_COMMIT_SHORT}'
+              sh 'docker push ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY}:${GIT_COMMIT_SHORT}'
             }
           }
         }
