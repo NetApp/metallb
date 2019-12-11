@@ -26,7 +26,7 @@ pipeline {
         container('golang') {
           // We need to provide a personal access token to fetch private dependencies
           sh 'git config --global url."https://oauth2:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"'
-          sh("go test ./...")
+          sh("make test")
         }
       }
     }

@@ -20,3 +20,7 @@ build:  ## Run go build for speaker and controller
 .PHONY: test
 test:  ## Run unit tests
 	go test ./... -short
+
+.PHONY: test-local
+test-local:  ## Run unit tests locally, we need to do it in a container because weird macOS vs. Linux stuff
+	docker run -v ${PWD}:/metallb -w /metallb golang:1.13 make test
