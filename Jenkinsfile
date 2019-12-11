@@ -29,13 +29,19 @@ pipeline {
           branch 'PR-*'
         }
       }
+      environment {
+        GIT_COMMIT_SHORT = sh(
+                script: "printf \$(git rev-parse --short ${GIT_COMMIT})",
+                returnStdout: true
+        ).trim()
+      }
       steps {
+        container('golang') {
+          sh("make build")
+        }
         container('builder-base') {
-          // We need to provide a personal access token to fetch private dependencies
-          sh("go build -v -o build/amd64/controller/controller -ldflags '-X go.universe.tf/metallb/internal/version.gitCommit=6ea9bc6e-dirty -X go.universe.tf/metallb/internal/version.gitBranch=task/introduce-dynamic-addresses' go.universe.tf/metallb/controller")
-          script {
-            image = docker.build("${CONTROLLER_REPOSITORY}", "--build-arg GITHUB_TOKEN=${GITHUB_TOKEN} .")
-          }
+          sh("docker build -t ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY} -f - build/amd64/${CONTROLLER} < ${CONTROLLER}/Dockerfile")
+          sh("docker build -t ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY} -f - build/amd64/${SPEAKER} < ${SPEAKER}/Dockerfile")
         }
       }
     }
@@ -54,8 +60,10 @@ pipeline {
         container('builder-base') {
           script {
             docker.withRegistry("https://${DOCKER_REGISTRY}", "gcr:${ORG}") {
-              image.push("dev-${GIT_COMMIT_SHORT}")
-              image.push("dev")
+              sh 'docker tag ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY} ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY}:${GIT_COMMIT_SHORT}-dev'
+              sh 'docker push ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY}:${GIT_COMMIT_SHORT}-dev'
+              sh 'docker tag ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY} ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY}:${GIT_COMMIT_SHORT}-dev'
+              sh 'docker push ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY}:${GIT_COMMIT_SHORT}-dev'
             }
           }
         }
@@ -76,8 +84,10 @@ pipeline {
         container('builder-base') {
           script {
             docker.withRegistry("https://${DOCKER_REGISTRY}", "gcr:${ORG}") {
-              image.push("${API_VERSION}-${GIT_COMMIT_SHORT}")
-              image.push("${API_VERSION}")
+              sh 'docker tag ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY} ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY}:${GIT_COMMIT_SHORT}'
+              sh 'docker push ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY}:${GIT_COMMIT_SHORT}'
+              sh 'docker tag ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY} ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY}:${GIT_COMMIT_SHORT}'
+              sh 'docker push ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY}:${GIT_COMMIT_SHORT}'
             }
           }
         }
