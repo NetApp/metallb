@@ -34,7 +34,7 @@ pipeline {
     stage('build') {
       when {
         anyOf {
-          branch 'master'
+          branch 'main'
           branch 'PR-*'
         }
       }
