@@ -49,8 +49,8 @@ pipeline {
           sh("make build")
         }
         container('builder-base') {
-          sh("docker build -t ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY} -f - build/amd64/${CONTROLLER} < ${CONTROLLER}/Dockerfile")
-          sh("docker build -t ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY} -f - build/amd64/${SPEAKER} < ${SPEAKER}/Dockerfile")
+          sh("docker build -t ${DOCKER_REGISTRY}/${CONTROLLER_REPOSITORY} -f ${CONTROLLER}/Dockerfile build/amd64/${CONTROLLER}")
+          sh("docker build -t ${DOCKER_REGISTRY}/${SPEAKER_REPOSITORY} -f ${SPEAKER}/Dockerfile build/amd64/${SPEAKER}")
         }
       }
     }
