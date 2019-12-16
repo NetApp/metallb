@@ -13,8 +13,8 @@ help:
 
 .PHONY: build
 build:  ## Run go build for speaker and controller
-	GOOS=linux GOARCH=amd64 go build -v -o build/amd64/controller/controller -ldflags '-X go.universe.tf/metallb/internal/version.gitCommit=${COMMIT} -X go.universe.tf/metallb/internal/version.gitBranch=${BRANCH}' go.universe.tf/metallb/controller
-	GOOS=linux GOARCH=amd64 go build -v -o build/amd64/speaker/speaker -ldflags '-X go.universe.tf/metallb/internal/version.gitCommit=${COMMIT} -X go.universe.tf/metallb/internal/version.gitBranch=${BRANCH}' go.universe.tf/metallb/speaker
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -v -o build/amd64/controller/controller -ldflags '-X go.universe.tf/metallb/internal/version.gitCommit=${COMMIT} -X go.universe.tf/metallb/internal/version.gitBranch=${BRANCH}' go.universe.tf/metallb/controller
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -v -o build/amd64/speaker/speaker -ldflags '-X go.universe.tf/metallb/internal/version.gitCommit=${COMMIT} -X go.universe.tf/metallb/internal/version.gitBranch=${BRANCH}' go.universe.tf/metallb/speaker
 
 
 .PHONY: test
