@@ -6,7 +6,7 @@ metadata:
 spec:
   containers:
   - name: builder-base
-    image: jenkinsxio/builder-base:0.1.215
+    image: docker:19
     tty: true
     securityContext:
       privileged: true
