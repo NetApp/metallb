@@ -1425,11 +1425,22 @@ func TestReservationMetaData(t *testing.T) {
 	})
 
 	t.Run("WhenEnvVariableSet", func(tt *testing.T) {
-		randomClusterID := "awd12e78wa"
+		randomWorkspaceID := "workspace123"
+		os.Setenv(workspaceIDEnvVariable, randomWorkspaceID)
+		randomInstanceID := "instance123"
+		os.Setenv(instanceIDEnvVariable, randomInstanceID)
+		randomClusterID := "cluster123"
 		os.Setenv(clusterIDEnvVariable, randomClusterID)
 
+		expectedMetaData := map[string]string{
+			workspaceIDMetaDataKey:     randomWorkspaceID,
+			instanceIDMetaDataKey:      randomInstanceID,
+			clusterIDMetaDataKey:       randomClusterID,
+			reservationTypeMetaDataKey: reservationTypeMetaDataValue,
+		}
+
 		metaData := reservationMetaData()
-		assert.Equal(tt, randomClusterID, metaData[clusterIDMetaDataKey])
+		assert.Equal(tt, expectedMetaData, metaData)
 
 		os.Clearenv()
 	})
@@ -1437,15 +1448,23 @@ func TestReservationMetaData(t *testing.T) {
 
 func TestGetClusterID(t *testing.T) {
 	t.Run("WhenNoEnvVariableSet", func(tt *testing.T) {
-		clusterID := getClusterID()
+		workspaceID, instanceID, clusterID := clusterInfo()
+		assert.Empty(tt, workspaceID)
+		assert.Empty(tt, instanceID)
 		assert.Empty(tt, clusterID)
 	})
 
 	t.Run("WhenEnvVariableSet", func(tt *testing.T) {
-		randomClusterID := "awd12e78wa"
+		randomWorkspaceID := "workspace123"
+		os.Setenv(workspaceIDEnvVariable, randomWorkspaceID)
+		randomInstanceID := "instance123"
+		os.Setenv(instanceIDEnvVariable, randomInstanceID)
+		randomClusterID := "cluster123"
 		os.Setenv(clusterIDEnvVariable, randomClusterID)
 
-		clusterID := getClusterID()
+		workspaceID, instanceID, clusterID := clusterInfo()
+		assert.Equal(tt, randomWorkspaceID, workspaceID)
+		assert.Equal(tt, randomInstanceID, instanceID)
 		assert.Equal(tt, randomClusterID, clusterID)
 
 		os.Clearenv()

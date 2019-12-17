@@ -16,8 +16,16 @@ import (
 )
 
 const (
-	clusterIDEnvVariable = "CLUSTERID"
-	clusterIDMetaDataKey = "nks.netapp.io/clusterid"
+	workspaceIDEnvVariable = "WORKSPACE_ID"
+	instanceIDEnvVariable  = "INSTANCE_ID"
+	clusterIDEnvVariable   = "CLUSTER_ID"
+
+	workspaceIDMetaDataKey     = "nks.netapp.io/workspace"
+	instanceIDMetaDataKey      = "nks.netapp.io/instanceid"
+	clusterIDMetaDataKey       = "nks.netapp.io/cluster"
+	reservationTypeMetaDataKey = "nks.netapp.io/reservationtype"
+
+	reservationTypeMetaDataValue = "loadbalancer"
 )
 
 // An Allocator tracks IP address pools and allocates addresses from them.
@@ -486,14 +494,19 @@ func randomMAC() (string, error) {
 }
 
 func reservationMetaData() map[string]string {
-	clusterID := getClusterID()
+	workspaceID, instanceID, clusterID := clusterInfo()
 
 	return map[string]string{
-		clusterIDMetaDataKey: clusterID,
+		workspaceIDMetaDataKey:     workspaceID,
+		instanceIDMetaDataKey:      instanceID,
+		clusterIDMetaDataKey:       clusterID,
+		reservationTypeMetaDataKey: reservationTypeMetaDataValue,
 	}
 }
 
-func getClusterID() string {
+func clusterInfo() (string, string, string) {
+	workspaceID := os.Getenv(workspaceIDEnvVariable)
+	instanceID := os.Getenv(instanceIDEnvVariable)
 	clusterID := os.Getenv(clusterIDEnvVariable)
-	return clusterID
+	return workspaceID, instanceID, clusterID
 }
