@@ -6,12 +6,26 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"os"
 	"strings"
 
 	"go.universe.tf/metallb/internal/config"
 
 	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
 	"github.com/mikioh/ipaddr"
+)
+
+const (
+	workspaceIDEnvVariable = "WORKSPACE_ID"
+	instanceIDEnvVariable  = "INSTANCE_ID"
+	clusterIDEnvVariable   = "CLUSTER_ID"
+
+	workspaceIDMetaDataKey     = "nks.netapp.io/workspace"
+	instanceIDMetaDataKey      = "nks.netapp.io/instanceid"
+	clusterIDMetaDataKey       = "nks.netapp.io/cluster"
+	reservationTypeMetaDataKey = "nks.netapp.io/reservationtype"
+
+	reservationTypeMetaDataValue = "loadbalancer"
 )
 
 // An Allocator tracks IP address pools and allocates addresses from them.
@@ -254,7 +268,9 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 }
 
 func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string, poolName string) (net.IP, error) {
-	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, nil)
+	metaData := reservationMetaData()
+
+	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, nil, metaData)
 	if err != nil {
 		return nil, fmt.Errorf("unable to reserve IPs from pool %q, %w", poolName, err)
 	}
@@ -475,4 +491,22 @@ func randomMAC() (string, error) {
 	buf[0] |= 2
 	mac := fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x", buf[0], buf[1], buf[2], buf[3], buf[4], buf[5])
 	return mac, nil
+}
+
+func reservationMetaData() map[string]string {
+	workspaceID, instanceID, clusterID := clusterInfo()
+
+	return map[string]string{
+		workspaceIDMetaDataKey:     workspaceID,
+		instanceIDMetaDataKey:      instanceID,
+		clusterIDMetaDataKey:       clusterID,
+		reservationTypeMetaDataKey: reservationTypeMetaDataValue,
+	}
+}
+
+func clusterInfo() (string, string, string) {
+	workspaceID := os.Getenv(workspaceIDEnvVariable)
+	instanceID := os.Getenv(instanceIDEnvVariable)
+	clusterID := os.Getenv(clusterIDEnvVariable)
+	return workspaceID, instanceID, clusterID
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -1415,6 +1416,59 @@ func TestPoolCount(t *testing.T) {
 			assert.Equalf(tt, test.want, got, "%q: wrong pool count, want %d, got %d", test.desc, test.want, got)
 		})
 	}
+}
+
+func TestReservationMetaData(t *testing.T) {
+	t.Run("WhenNoEnvVariableSet", func(tt *testing.T) {
+		metaData := reservationMetaData()
+		assert.Empty(tt, metaData[clusterIDMetaDataKey])
+	})
+
+	t.Run("WhenEnvVariableSet", func(tt *testing.T) {
+		randomWorkspaceID := "workspace123"
+		os.Setenv(workspaceIDEnvVariable, randomWorkspaceID)
+		randomInstanceID := "instance123"
+		os.Setenv(instanceIDEnvVariable, randomInstanceID)
+		randomClusterID := "cluster123"
+		os.Setenv(clusterIDEnvVariable, randomClusterID)
+
+		expectedMetaData := map[string]string{
+			workspaceIDMetaDataKey:     randomWorkspaceID,
+			instanceIDMetaDataKey:      randomInstanceID,
+			clusterIDMetaDataKey:       randomClusterID,
+			reservationTypeMetaDataKey: reservationTypeMetaDataValue,
+		}
+
+		metaData := reservationMetaData()
+		assert.Equal(tt, expectedMetaData, metaData)
+
+		os.Clearenv()
+	})
+}
+
+func TestGetClusterID(t *testing.T) {
+	t.Run("WhenNoEnvVariableSet", func(tt *testing.T) {
+		workspaceID, instanceID, clusterID := clusterInfo()
+		assert.Empty(tt, workspaceID)
+		assert.Empty(tt, instanceID)
+		assert.Empty(tt, clusterID)
+	})
+
+	t.Run("WhenEnvVariableSet", func(tt *testing.T) {
+		randomWorkspaceID := "workspace123"
+		os.Setenv(workspaceIDEnvVariable, randomWorkspaceID)
+		randomInstanceID := "instance123"
+		os.Setenv(instanceIDEnvVariable, randomInstanceID)
+		randomClusterID := "cluster123"
+		os.Setenv(clusterIDEnvVariable, randomClusterID)
+
+		workspaceID, instanceID, clusterID := clusterInfo()
+		assert.Equal(tt, randomWorkspaceID, workspaceID)
+		assert.Equal(tt, randomInstanceID, instanceID)
+		assert.Equal(tt, randomClusterID, clusterID)
+
+		os.Clearenv()
+	})
 }
 
 // Some helpers
