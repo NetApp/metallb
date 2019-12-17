@@ -3,7 +3,7 @@ module go.universe.tf/metallb
 go 1.13
 
 require (
-	github.com/NetApp/nks-on-prem-ipam v0.1.4
+	github.com/NetApp/nks-on-prem-ipam v0.1.5
 	github.com/armon/go-radix v1.0.0 // indirect
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2 // indirect
 	github.com/eapache/channels v1.1.0 // indirect

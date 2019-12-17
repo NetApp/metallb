@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -1415,6 +1416,40 @@ func TestPoolCount(t *testing.T) {
 			assert.Equalf(tt, test.want, got, "%q: wrong pool count, want %d, got %d", test.desc, test.want, got)
 		})
 	}
+}
+
+func TestReservationMetaData(t *testing.T) {
+	t.Run("WhenNoEnvVariableSet", func(tt *testing.T) {
+		metaData := reservationMetaData()
+		assert.Empty(tt, metaData[clusterIDMetaDataKey])
+	})
+
+	t.Run("WhenEnvVariableSet", func(tt *testing.T) {
+		randomClusterID := "awd12e78wa"
+		os.Setenv(clusterIDEnvVariable, randomClusterID)
+
+		metaData := reservationMetaData()
+		assert.Equal(tt, randomClusterID, metaData[clusterIDMetaDataKey])
+
+		os.Clearenv()
+	})
+}
+
+func TestGetClusterID(t *testing.T) {
+	t.Run("WhenNoEnvVariableSet", func(tt *testing.T) {
+		clusterID := getClusterID()
+		assert.Empty(tt, clusterID)
+	})
+
+	t.Run("WhenEnvVariableSet", func(tt *testing.T) {
+		randomClusterID := "awd12e78wa"
+		os.Setenv(clusterIDEnvVariable, randomClusterID)
+
+		clusterID := getClusterID()
+		assert.Equal(tt, randomClusterID, clusterID)
+
+		os.Clearenv()
+	})
 }
 
 // Some helpers
