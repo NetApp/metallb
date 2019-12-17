@@ -20,10 +20,10 @@ const (
 	instanceIDEnvVariable  = "INSTANCE_ID"
 	clusterIDEnvVariable   = "CLUSTER_ID"
 
-	workspaceIDMetaDataKey     = "nks.netapp.io/workspace"
-	instanceIDMetaDataKey      = "nks.netapp.io/instanceid"
-	clusterIDMetaDataKey       = "nks.netapp.io/cluster"
-	reservationTypeMetaDataKey = "nks.netapp.io/reservationtype"
+	workspaceIDMetaDataKey     = "hci.nks.netapp.com/workspace"
+	instanceIDMetaDataKey      = "hci.nks.netapp.com/instanceid"
+	clusterIDMetaDataKey       = "hci.nks.netapp.com/cluster"
+	reservationTypeMetaDataKey = "hci.nks.netapp.com/reservationtype"
 
 	reservationTypeMetaDataValue = "loadbalancer"
 )
