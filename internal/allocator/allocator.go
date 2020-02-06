@@ -19,13 +19,6 @@ const (
 	workspaceIDEnvVariable = "WORKSPACE_ID"
 	instanceIDEnvVariable  = "INSTANCE_ID"
 	clusterIDEnvVariable   = "CLUSTER_ID"
-
-	workspaceIDMetaDataKey     = "hci.nks.netapp.com/workspace"
-	instanceIDMetaDataKey      = "hci.nks.netapp.com/instanceid"
-	clusterIDMetaDataKey       = "hci.nks.netapp.com/cluster"
-	reservationTypeMetaDataKey = "hci.nks.netapp.com/reservationtype"
-
-	reservationTypeMetaDataValue = "loadbalancer"
 )
 
 // An Allocator tracks IP address pools and allocates addresses from them.
@@ -500,10 +493,10 @@ func reservationMetaData() map[string]string {
 	workspaceID, instanceID, clusterID := clusterInfo()
 
 	return map[string]string{
-		workspaceIDMetaDataKey:     workspaceID,
-		instanceIDMetaDataKey:      instanceID,
-		clusterIDMetaDataKey:       clusterID,
-		reservationTypeMetaDataKey: reservationTypeMetaDataValue,
+		ipam.WorkspaceIDKey:       workspaceID,
+		ipam.ClusterInstanceIDKey: instanceID,
+		ipam.ClusterIDKey:         clusterID,
+		ipam.IPReservationTypeKey: ipam.IPReservationTypeLoadbalancer,
 	}
 }
 
@@ -534,6 +527,6 @@ func getReservationID(agent ipam.Agent, networkType ipam.NetworkType, ip string)
 
 func reservationSearchMetaData() map[string]string {
 	return map[string]string{
-		reservationTypeMetaDataKey: reservationTypeMetaDataValue,
+		ipam.IPReservationTypeKey: ipam.IPReservationTypeLoadbalancer,
 	}
 }
