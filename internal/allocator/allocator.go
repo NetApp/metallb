@@ -270,19 +270,17 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string, poolName string) (net.IP, error) {
 	metaData := reservationMetaData()
 
-	res, err := pool.IPAM.ReserveIPs(ipam.NetworkType(poolName), ipam.IPv4, 1, nil, metaData)
+	// TODO What name to use?
+	reservationName := svc
+
+	res, err := pool.IPAM.ReserveIP(ipam.NetworkType(poolName), ipam.IPv4, reservationName, "", metaData)
 	if err != nil {
-		return nil, fmt.Errorf("unable to reserve IPs from pool %q, %w", poolName, err)
+		return nil, fmt.Errorf("unable to reserve IP from pool %q, %w", poolName, err)
 	}
 
-	if len(res) != 1 {
-		return nil, fmt.Errorf("received the wrong number of reservations, expected eactly 1 but got %d", len(res))
-	}
-
-	resIP := res[0].Address
-	ip := net.ParseIP(resIP)
+	ip := net.ParseIP(res.Address)
 	if ip == nil {
-		return nil, fmt.Errorf("unable to parse ip from reservation: %s", resIP)
+		return nil, fmt.Errorf("unable to parse ip from reservation: %s (%s)", res.ID, res.Address)
 	}
 
 	if err := a.Assign(svc, ip, ports, sharingKey, backendKey); err != nil {
@@ -358,8 +356,13 @@ func (a *Allocator) UnAllocate(svc string) error {
 		return nil
 	}
 
-	if err := pool.IPAM.ReleaseIPs(ipam.NetworkType(poolName), []string{svcIP.String()}); err != nil {
-		return fmt.Errorf("unable to release static IP: %s from pool: %s, %v", svcIP.String(), poolName, err)
+	reservationID, err := getReservationID(pool.IPAM, ipam.NetworkType(poolName), svcIP.String())
+	if err != nil {
+		return fmt.Errorf("could not get reservation ID, %v", err)
+	}
+
+	if err := pool.IPAM.ReleaseIPs(ipam.NetworkType(poolName), []string{reservationID}); err != nil {
+		return fmt.Errorf("unable to release static IP: %s (%s) from pool: %s, %v", reservationID, svcIP.String(), poolName, err)
 	}
 
 	return nil
@@ -509,4 +512,28 @@ func clusterInfo() (string, string, string) {
 	instanceID := os.Getenv(instanceIDEnvVariable)
 	clusterID := os.Getenv(clusterIDEnvVariable)
 	return workspaceID, instanceID, clusterID
+}
+
+func getReservationID(agent ipam.Agent, networkType ipam.NetworkType, ip string) (string, error) {
+
+	// TODO This is kind of hacky. Should we integrate the ID into metallb's state or just do it like this?
+
+	reservations, err := agent.ListIPReservations(networkType, reservationSearchMetaData())
+	if err != nil {
+		return "", fmt.Errorf("unable to list reservations, %v", err)
+	}
+
+	for _, res := range reservations {
+		if res.Address == ip {
+			return res.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("unable to find reservation for ip %s on network type %s", ip, networkType)
+}
+
+func reservationSearchMetaData() map[string]string {
+	return map[string]string{
+		reservationTypeMetaDataKey: reservationTypeMetaDataValue,
+	}
 }
