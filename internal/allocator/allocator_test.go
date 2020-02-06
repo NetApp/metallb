@@ -826,7 +826,7 @@ func TestDynamicAllocation(t *testing.T) {
 	tests := []struct {
 		desc    string
 		svc     string
-		res     []ipam.IPAddressReservation
+		res     ipam.IPAddressReservation
 		resErr  error
 		wantErr bool
 	}{
@@ -841,25 +841,11 @@ func TestDynamicAllocation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			desc: "s3 cant get an IP due to incorrect reservation count",
-			svc:  "s3",
-			res: []ipam.IPAddressReservation{
-				{
-					Address: "1.2.3.4",
-				},
-				{
-					Address: "4.3.2.1",
-				},
-			},
-			wantErr: true,
-		},
-		{
 			desc: "s4 cant get an IP due to incorrect reservation address format",
 			svc:  "s4",
-			res: []ipam.IPAddressReservation{
-				{
-					Address: "a.b.c.d",
-				},
+			res: ipam.IPAddressReservation{
+				ID:      "the id",
+				Address: "a.b.c.d",
 			},
 			wantErr: true,
 		},
@@ -869,16 +855,15 @@ func TestDynamicAllocation(t *testing.T) {
 		t.Run(test.desc, func(tt *testing.T) {
 			state := &fake.State{}
 
-			state.ReserveIPsError = test.resErr
-			if test.res == nil {
-				test.res = []ipam.IPAddressReservation{
-					{
-						Address: "1.2.3.4",
-					},
+			state.ReserveIPError = test.resErr
+			if test.res.Address == "" {
+				test.res = ipam.IPAddressReservation{
+					ID:      "the id",
+					Address: "1.2.3.4",
 				}
 			}
 
-			state.ReservationsToReturn = test.res
+			state.ReservationToReturn = test.res
 
 			fake.SetState(state)
 			alloc.pools["test"].IPAM = fake.GetFakeIPAMAgent()
@@ -907,17 +892,28 @@ func TestUnAllocation(t *testing.T) {
 	}
 
 	tests := []struct {
-		desc    string
-		svc     string
-		res     []ipam.IPAddressReservation
-		resErr  error
-		wantErr bool
+		desc        string
+		svc         string
+		res         ipam.IPAddressReservation
+		listRes     []ipam.IPAddressReservation
+		releaseErr  error
+		wantErr     bool
+		expectedErr string
 	}{
 		{
 			desc: "s1 gets IP released",
 			svc:  "s1",
-			res: []ipam.IPAddressReservation{
+			res: ipam.IPAddressReservation{
+				ID:      "the id",
+				Address: "1.2.3.4",
+			},
+			listRes: []ipam.IPAddressReservation{
 				{
+					ID:      "some other reservation",
+					Address: "9.2.3.4",
+				},
+				{
+					ID:      "the id",
 					Address: "1.2.3.4",
 				},
 			},
@@ -925,13 +921,40 @@ func TestUnAllocation(t *testing.T) {
 		{
 			desc: "s2 gets error on release",
 			svc:  "s2",
-			res: []ipam.IPAddressReservation{
+			res: ipam.IPAddressReservation{
+				ID:      "the id",
+				Address: "2.3.4.5",
+			},
+			listRes: []ipam.IPAddressReservation{
 				{
+					ID:      "the id",
 					Address: "2.3.4.5",
 				},
 			},
-			wantErr: true,
-			resErr:  errors.New("unable to release IP"),
+			wantErr:     true,
+			releaseErr:  errors.New("unable to release IP"),
+			expectedErr: "unable to release IP",
+		},
+		{
+			desc: "cant find reservation for ip",
+			svc:  "s3",
+			res: ipam.IPAddressReservation{
+				ID:      "the id",
+				Address: "3.2.3.4",
+			},
+			listRes: []ipam.IPAddressReservation{
+				{
+					ID:      "some other reservation",
+					Address: "4.5.6.7",
+				},
+				{
+					ID:      "yet another reservation",
+					Address: "5.6.7.8",
+				},
+			},
+			releaseErr:  nil,
+			wantErr:     true,
+			expectedErr: "could not get reservation ID",
 		},
 	}
 
@@ -939,9 +962,9 @@ func TestUnAllocation(t *testing.T) {
 		t.Run(test.desc, func(tt *testing.T) {
 			state := &fake.State{}
 
-			state.ReleaseReservationsError = test.resErr
-
-			state.ReservationsToReturn = test.res
+			state.ReleaseReservationsError = test.releaseErr
+			state.ReservationToReturn = test.res
+			state.ReservationsToReturn = test.listRes
 
 			fake.SetState(state)
 			allocWithIPAM.pools["test"].IPAM = fake.GetFakeIPAMAgent()
@@ -953,7 +976,10 @@ func TestUnAllocation(t *testing.T) {
 			err = allocWithIPAM.UnAllocate(test.svc)
 			if test.wantErr {
 				require.Error(tt, err)
+				assert.Contains(tt, err.Error(), test.expectedErr)
 				return
+			} else {
+				require.NoError(tt, err)
 			}
 		})
 	}
@@ -1421,7 +1447,7 @@ func TestPoolCount(t *testing.T) {
 func TestReservationMetaData(t *testing.T) {
 	t.Run("WhenNoEnvVariableSet", func(tt *testing.T) {
 		metaData := reservationMetaData()
-		assert.Empty(tt, metaData[clusterIDMetaDataKey])
+		assert.Empty(tt, metaData[ipam.ClusterIDKey])
 	})
 
 	t.Run("WhenEnvVariableSet", func(tt *testing.T) {
@@ -1433,10 +1459,10 @@ func TestReservationMetaData(t *testing.T) {
 		os.Setenv(clusterIDEnvVariable, randomClusterID)
 
 		expectedMetaData := map[string]string{
-			workspaceIDMetaDataKey:     randomWorkspaceID,
-			instanceIDMetaDataKey:      randomInstanceID,
-			clusterIDMetaDataKey:       randomClusterID,
-			reservationTypeMetaDataKey: reservationTypeMetaDataValue,
+			ipam.WorkspaceIDKey:       randomWorkspaceID,
+			ipam.ClusterInstanceIDKey: randomInstanceID,
+			ipam.ClusterIDKey:         randomClusterID,
+			ipam.IPReservationTypeKey: ipam.IPReservationTypeLoadbalancer,
 		}
 
 		metaData := reservationMetaData()
