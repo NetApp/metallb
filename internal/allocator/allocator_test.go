@@ -2,7 +2,6 @@ package allocator
 
 import (
 	"errors"
-	"go.universe.tf/metallb/internal/logging"
 	"math"
 	"net"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.universe.tf/metallb/internal/config"
+	"go.universe.tf/metallb/internal/logging"
 )
 
 func TestAssignment(t *testing.T) {
