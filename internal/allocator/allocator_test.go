@@ -2,6 +2,7 @@ package allocator
 
 import (
 	"errors"
+	"go.universe.tf/metallb/internal/logging"
 	"math"
 	"net"
 	"os"
@@ -579,6 +580,9 @@ func TestPoolAllocation(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for _, test := range tests {
 		t.Run(test.desc, func(tt *testing.T) {
 
@@ -587,7 +591,7 @@ func TestPoolAllocation(t *testing.T) {
 				return
 			}
 
-			ip, err := alloc.AllocateFromPool(test.svc, test.isIPv6, "test", test.ports, test.sharingKey, "")
+			ip, err := alloc.AllocateFromPool(l, test.svc, test.isIPv6, "test", test.ports, test.sharingKey, "")
 			if test.wantErr {
 				assert.Errorf(tt, err, "%s: should have caused an error, but did not", test.desc)
 				return
@@ -605,7 +609,7 @@ func TestPoolAllocation(t *testing.T) {
 	}
 
 	alloc.Unassign("s5")
-	_, err := alloc.AllocateFromPool("s5", false, "nonexistentpool", nil, "", "")
+	_, err = alloc.AllocateFromPool(l, "s5", false, "nonexistentpool", nil, "", "")
 	assert.Errorf(t, err, "Allocating from non-existent pool succeeded")
 }
 
@@ -787,12 +791,15 @@ func TestAllocation(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for _, test := range tests {
 		if test.unassign {
 			alloc.Unassign(test.svc)
 			continue
 		}
-		ip, err := alloc.Allocate(test.svc, test.isIPv6, test.ports, test.sharingKey, "")
+		ip, err := alloc.Allocate(l, test.svc, test.isIPv6, test.ports, test.sharingKey, "")
 		if test.wantErr {
 			if err == nil {
 				t.Errorf("%s: should have caused an error, but did not", test.desc)
@@ -851,6 +858,9 @@ func TestDynamicAllocation(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for _, test := range tests {
 		t.Run(test.desc, func(tt *testing.T) {
 			state := &fake.State{}
@@ -868,7 +878,7 @@ func TestDynamicAllocation(t *testing.T) {
 			fake.SetState(state)
 			alloc.pools["test"].IPAM = fake.GetFakeIPAMAgent()
 
-			ip, err := alloc.Allocate(test.svc, false, []Port{}, "", "")
+			ip, err := alloc.Allocate(l, test.svc, false, []Port{}, "", "")
 			if test.wantErr {
 				assert.Error(tt, err)
 				return
@@ -958,6 +968,9 @@ func TestUnAllocation(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for _, test := range tests {
 		t.Run(test.desc, func(tt *testing.T) {
 			state := &fake.State{}
@@ -969,11 +982,11 @@ func TestUnAllocation(t *testing.T) {
 			fake.SetState(state)
 			allocWithIPAM.pools["test"].IPAM = fake.GetFakeIPAMAgent()
 
-			ip, err := allocWithIPAM.Allocate(test.svc, false, []Port{}, "", "")
+			ip, err := allocWithIPAM.Allocate(l, test.svc, false, []Port{}, "", "")
 			require.NoError(tt, err)
 			require.NotNil(tt, ip)
 
-			err = allocWithIPAM.UnAllocate(test.svc)
+			err = allocWithIPAM.UnAllocate(l, test.svc)
 			if test.wantErr {
 				require.Error(tt, err)
 				assert.Contains(tt, err.Error(), test.expectedErr)
@@ -1020,12 +1033,12 @@ func TestUnAllocation(t *testing.T) {
 	for _, test := range testsNotIPAM {
 		t.Run(test.desc, func(tt *testing.T) {
 			if test.wantAlloc {
-				ip, err := allocNormal.Allocate(test.svc, false, []Port{}, "", "")
+				ip, err := allocNormal.Allocate(l, test.svc, false, []Port{}, "", "")
 				require.NoError(tt, err)
 				require.NotNil(tt, ip)
 			}
 
-			err := allocNormal.UnAllocate(test.svc)
+			err := allocNormal.UnAllocate(l, test.svc)
 			require.NoError(tt, err)
 		})
 	}
@@ -1081,9 +1094,12 @@ func TestBuggyIPs(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for i, test := range tests {
 		t.Run(test.svc, func(tt *testing.T) {
-			ip, err := alloc.Allocate(test.svc, false, nil, "", "")
+			ip, err := alloc.Allocate(l, test.svc, false, nil, "", "")
 			if test.wantErr {
 				assert.Errorf(tt, err, "#%d should have caused an error, but did not", i+1)
 				return
@@ -1370,6 +1386,9 @@ func TestAutoAssign(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for i, test := range tests {
 		t.Run(test.svc, func(tt *testing.T) {
 			if test.unassign {
@@ -1377,7 +1396,7 @@ func TestAutoAssign(t *testing.T) {
 				return
 			}
 
-			ip, err := alloc.Allocate(test.svc, test.isIPv6, nil, "", "")
+			ip, err := alloc.Allocate(l, test.svc, test.isIPv6, nil, "", "")
 			if test.wantErr {
 				assert.Errorf(tt, err, "#%d should have caused an error, but did not", i+1)
 				return

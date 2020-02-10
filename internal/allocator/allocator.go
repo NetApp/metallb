@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"github.com/go-kit/kit/log"
 	"math"
 	"net"
 	"os"
@@ -227,7 +228,7 @@ func ipIsIPv6(ip net.IP) bool {
 }
 
 // AllocateFromPool assigns an available IP from pool to service.
-func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, ports []Port, sharingKey, backendKey string) (net.IP, error) {
+func (a *Allocator) AllocateFromPool(l log.Logger, svc string, isIPv6 bool, poolName string, ports []Port, sharingKey, backendKey string) (net.IP, error) {
 	if alloc := a.allocated[svc]; alloc != nil {
 		// Handle the case where the svc has already been assigned an IP but from the wrong family.
 		// This "should-not-happen" since the "ipFamily" is an immutable field in services.
@@ -248,7 +249,7 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 	var ip net.IP
 	var err error
 	if pool.Protocol == config.IPAM {
-		ip, err = a.allocateFromDynamicPool(pool, isIPv6, svc, ports, sharingKey, backendKey, poolName)
+		ip, err = a.allocateFromDynamicPool(l, pool, isIPv6, svc, ports, sharingKey, backendKey, poolName)
 	} else {
 		ip, err = a.allocateFromStaticPool(pool, isIPv6, svc, ports, sharingKey, backendKey)
 	}
@@ -260,7 +261,7 @@ func (a *Allocator) AllocateFromPool(svc string, isIPv6 bool, poolName string, p
 	return ip, nil
 }
 
-func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string, poolName string) (net.IP, error) {
+func (a *Allocator) allocateFromDynamicPool(l log.Logger, pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string, poolName string) (net.IP, error) {
 	metaData := reservationMetaData()
 
 	// TODO What name to use?
@@ -270,6 +271,8 @@ func (a *Allocator) allocateFromDynamicPool(pool *config.Pool, isIPv6 bool, svc 
 	if err != nil {
 		return nil, fmt.Errorf("unable to reserve IP from pool %q, %w", poolName, err)
 	}
+
+	l.Log("event", "ipReserved", "ip", res.Address, "id", reservationName, "networkType", ipam.NetworkType(poolName), "msg", "IP address reserved")
 
 	ip := net.ParseIP(res.Address)
 	if ip == nil {
@@ -307,7 +310,7 @@ func (a *Allocator) allocateFromStaticPool(pool *config.Pool, isIPv6 bool, svc s
 }
 
 // Allocate assigns any available and assignable IP to service.
-func (a *Allocator) Allocate(svc string, isIPv6 bool, ports []Port, sharingKey, backendKey string) (net.IP, error) {
+func (a *Allocator) Allocate(l log.Logger, svc string, isIPv6 bool, ports []Port, sharingKey, backendKey string) (net.IP, error) {
 	if alloc := a.allocated[svc]; alloc != nil {
 		if err := a.Assign(svc, alloc.ip, ports, sharingKey, backendKey); err != nil {
 			return nil, err
@@ -319,7 +322,7 @@ func (a *Allocator) Allocate(svc string, isIPv6 bool, ports []Port, sharingKey, 
 		if !a.pools[poolName].AutoAssign {
 			continue
 		}
-		if ip, err := a.AllocateFromPool(svc, isIPv6, poolName, ports, sharingKey, backendKey); err == nil {
+		if ip, err := a.AllocateFromPool(l, svc, isIPv6, poolName, ports, sharingKey, backendKey); err == nil {
 			return ip, nil
 		}
 	}
@@ -328,7 +331,7 @@ func (a *Allocator) Allocate(svc string, isIPv6 bool, ports []Port, sharingKey, 
 }
 
 // UnAllocate releases IPs associated with a service if the pool being used is pointing to external IPAM
-func (a *Allocator) UnAllocate(svc string) error {
+func (a *Allocator) UnAllocate(l log.Logger, svc string) error {
 	svcIP := a.IP(svc)
 	if svcIP == nil {
 		return nil
@@ -357,6 +360,8 @@ func (a *Allocator) UnAllocate(svc string) error {
 	if err := pool.IPAM.ReleaseIPs(ipam.NetworkType(poolName), []string{reservationID}); err != nil {
 		return fmt.Errorf("unable to release static IP: %s (%s) from pool: %s, %v", reservationID, svcIP.String(), poolName, err)
 	}
+
+	l.Log("event", "ipReleased", "ip", svcIP.String(), "id", reservationID, "networkType", ipam.NetworkType(poolName), "msg", "IP address released")
 
 	return nil
 }
@@ -509,7 +514,8 @@ func clusterInfo() (string, string, string) {
 
 func getReservationID(agent ipam.Agent, networkType ipam.NetworkType, ip string) (string, error) {
 
-	// TODO This is kind of hacky. Should we integrate the ID into metallb's state or just do it like this?
+	// We need to release the IP address by reservation name.
+	// Let's just look it up instead of baking it into metallb's state.
 
 	reservations, err := agent.ListIPReservations(networkType, reservationSearchMetaData())
 	if err != nil {
