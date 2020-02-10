@@ -264,8 +264,7 @@ func (a *Allocator) AllocateFromPool(l log.Logger, svc string, isIPv6 bool, pool
 func (a *Allocator) allocateFromDynamicPool(l log.Logger, pool *config.Pool, isIPv6 bool, svc string, ports []Port, sharingKey string, backendKey string, poolName string) (net.IP, error) {
 	metaData := reservationMetaData()
 
-	// TODO What name to use?
-	reservationName := svc
+	reservationName := generateReservationName(svc)
 
 	res, err := pool.IPAM.ReserveIP(ipam.NetworkType(poolName), ipam.IPv4, reservationName, "", metaData)
 	if err != nil {
@@ -510,6 +509,13 @@ func clusterInfo() (string, string, string) {
 	instanceID := os.Getenv(instanceIDEnvVariable)
 	clusterID := os.Getenv(clusterIDEnvVariable)
 	return workspaceID, instanceID, clusterID
+}
+
+func generateReservationName(svc string) string {
+	// The svc name here is {namespace}/{serviceName}, e.g. young-pear/cerulean-heart-jenkins
+	// Let's add the instance ID to make sure its unique
+	instanceID := os.Getenv(instanceIDEnvVariable)
+	return fmt.Sprintf("%s-%s", instanceID, svc)
 }
 
 func getReservationID(agent ipam.Agent, networkType ipam.NetworkType, ip string) (string, error) {
