@@ -4,12 +4,12 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/go-kit/kit/log"
 	"math"
 	"net"
 	"os"
 	"strings"
 
+	"github.com/go-kit/kit/log"
 	"go.universe.tf/metallb/internal/config"
 
 	"github.com/NetApp/nks-on-prem-ipam/pkg/ipam"
