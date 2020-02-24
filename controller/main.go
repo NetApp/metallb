@@ -99,7 +99,7 @@ func (c *controller) SetBalancer(l log.Logger, name string, svcRo *v1.Service, _
 }
 
 func (c *controller) deleteBalancer(l log.Logger, name string) {
-	if err := c.ips.UnAllocate(name); err != nil {
+	if err := c.ips.UnAllocate(l, name); err != nil {
 		l.Log("bug", "IPReleaseFailed", "error", err)
 	}
 

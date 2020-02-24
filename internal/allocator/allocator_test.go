@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.universe.tf/metallb/internal/config"
+	"go.universe.tf/metallb/internal/logging"
 )
 
 func TestAssignment(t *testing.T) {
@@ -579,6 +580,9 @@ func TestPoolAllocation(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for _, test := range tests {
 		t.Run(test.desc, func(tt *testing.T) {
 
@@ -587,7 +591,7 @@ func TestPoolAllocation(t *testing.T) {
 				return
 			}
 
-			ip, err := alloc.AllocateFromPool(test.svc, test.isIPv6, "test", test.ports, test.sharingKey, "")
+			ip, err := alloc.AllocateFromPool(l, test.svc, test.isIPv6, "test", test.ports, test.sharingKey, "")
 			if test.wantErr {
 				assert.Errorf(tt, err, "%s: should have caused an error, but did not", test.desc)
 				return
@@ -605,7 +609,7 @@ func TestPoolAllocation(t *testing.T) {
 	}
 
 	alloc.Unassign("s5")
-	_, err := alloc.AllocateFromPool("s5", false, "nonexistentpool", nil, "", "")
+	_, err = alloc.AllocateFromPool(l, "s5", false, "nonexistentpool", nil, "", "")
 	assert.Errorf(t, err, "Allocating from non-existent pool succeeded")
 }
 
@@ -787,12 +791,15 @@ func TestAllocation(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for _, test := range tests {
 		if test.unassign {
 			alloc.Unassign(test.svc)
 			continue
 		}
-		ip, err := alloc.Allocate(test.svc, test.isIPv6, test.ports, test.sharingKey, "")
+		ip, err := alloc.Allocate(l, test.svc, test.isIPv6, test.ports, test.sharingKey, "")
 		if test.wantErr {
 			if err == nil {
 				t.Errorf("%s: should have caused an error, but did not", test.desc)
@@ -826,7 +833,7 @@ func TestDynamicAllocation(t *testing.T) {
 	tests := []struct {
 		desc    string
 		svc     string
-		res     []ipam.IPAddressReservation
+		res     ipam.IPAddressReservation
 		resErr  error
 		wantErr bool
 	}{
@@ -841,49 +848,37 @@ func TestDynamicAllocation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			desc: "s3 cant get an IP due to incorrect reservation count",
-			svc:  "s3",
-			res: []ipam.IPAddressReservation{
-				{
-					Address: "1.2.3.4",
-				},
-				{
-					Address: "4.3.2.1",
-				},
-			},
-			wantErr: true,
-		},
-		{
 			desc: "s4 cant get an IP due to incorrect reservation address format",
 			svc:  "s4",
-			res: []ipam.IPAddressReservation{
-				{
-					Address: "a.b.c.d",
-				},
+			res: ipam.IPAddressReservation{
+				ID:      "the id",
+				Address: "a.b.c.d",
 			},
 			wantErr: true,
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for _, test := range tests {
 		t.Run(test.desc, func(tt *testing.T) {
 			state := &fake.State{}
 
-			state.ReserveIPsError = test.resErr
-			if test.res == nil {
-				test.res = []ipam.IPAddressReservation{
-					{
-						Address: "1.2.3.4",
-					},
+			state.ReserveIPError = test.resErr
+			if test.res.Address == "" {
+				test.res = ipam.IPAddressReservation{
+					ID:      "the id",
+					Address: "1.2.3.4",
 				}
 			}
 
-			state.ReservationsToReturn = test.res
+			state.ReservationToReturn = test.res
 
 			fake.SetState(state)
 			alloc.pools["test"].IPAM = fake.GetFakeIPAMAgent()
 
-			ip, err := alloc.Allocate(test.svc, false, []Port{}, "", "")
+			ip, err := alloc.Allocate(l, test.svc, false, []Port{}, "", "")
 			if test.wantErr {
 				assert.Error(tt, err)
 				return
@@ -907,17 +902,28 @@ func TestUnAllocation(t *testing.T) {
 	}
 
 	tests := []struct {
-		desc    string
-		svc     string
-		res     []ipam.IPAddressReservation
-		resErr  error
-		wantErr bool
+		desc        string
+		svc         string
+		res         ipam.IPAddressReservation
+		listRes     []ipam.IPAddressReservation
+		releaseErr  error
+		wantErr     bool
+		expectedErr string
 	}{
 		{
 			desc: "s1 gets IP released",
 			svc:  "s1",
-			res: []ipam.IPAddressReservation{
+			res: ipam.IPAddressReservation{
+				ID:      "the id",
+				Address: "1.2.3.4",
+			},
+			listRes: []ipam.IPAddressReservation{
 				{
+					ID:      "some other reservation",
+					Address: "9.2.3.4",
+				},
+				{
+					ID:      "the id",
 					Address: "1.2.3.4",
 				},
 			},
@@ -925,35 +931,68 @@ func TestUnAllocation(t *testing.T) {
 		{
 			desc: "s2 gets error on release",
 			svc:  "s2",
-			res: []ipam.IPAddressReservation{
+			res: ipam.IPAddressReservation{
+				ID:      "the id",
+				Address: "2.3.4.5",
+			},
+			listRes: []ipam.IPAddressReservation{
 				{
+					ID:      "the id",
 					Address: "2.3.4.5",
 				},
 			},
-			wantErr: true,
-			resErr:  errors.New("unable to release IP"),
+			wantErr:     true,
+			releaseErr:  errors.New("unable to release IP"),
+			expectedErr: "unable to release IP",
+		},
+		{
+			desc: "cant find reservation for ip",
+			svc:  "s3",
+			res: ipam.IPAddressReservation{
+				ID:      "the id",
+				Address: "3.2.3.4",
+			},
+			listRes: []ipam.IPAddressReservation{
+				{
+					ID:      "some other reservation",
+					Address: "4.5.6.7",
+				},
+				{
+					ID:      "yet another reservation",
+					Address: "5.6.7.8",
+				},
+			},
+			releaseErr:  nil,
+			wantErr:     true,
+			expectedErr: "could not get reservation ID",
 		},
 	}
+
+	l, err := logging.Init()
+	assert.NoError(t, err)
 
 	for _, test := range tests {
 		t.Run(test.desc, func(tt *testing.T) {
 			state := &fake.State{}
 
-			state.ReleaseReservationsError = test.resErr
-
-			state.ReservationsToReturn = test.res
+			state.ReleaseReservationsError = test.releaseErr
+			state.ReservationToReturn = test.res
+			state.ReservationsToReturn = test.listRes
 
 			fake.SetState(state)
 			allocWithIPAM.pools["test"].IPAM = fake.GetFakeIPAMAgent()
 
-			ip, err := allocWithIPAM.Allocate(test.svc, false, []Port{}, "", "")
+			ip, err := allocWithIPAM.Allocate(l, test.svc, false, []Port{}, "", "")
 			require.NoError(tt, err)
 			require.NotNil(tt, ip)
 
-			err = allocWithIPAM.UnAllocate(test.svc)
+			err = allocWithIPAM.UnAllocate(l, test.svc)
 			if test.wantErr {
 				require.Error(tt, err)
+				assert.Contains(tt, err.Error(), test.expectedErr)
 				return
+			} else {
+				require.NoError(tt, err)
 			}
 		})
 	}
@@ -994,12 +1033,12 @@ func TestUnAllocation(t *testing.T) {
 	for _, test := range testsNotIPAM {
 		t.Run(test.desc, func(tt *testing.T) {
 			if test.wantAlloc {
-				ip, err := allocNormal.Allocate(test.svc, false, []Port{}, "", "")
+				ip, err := allocNormal.Allocate(l, test.svc, false, []Port{}, "", "")
 				require.NoError(tt, err)
 				require.NotNil(tt, ip)
 			}
 
-			err := allocNormal.UnAllocate(test.svc)
+			err := allocNormal.UnAllocate(l, test.svc)
 			require.NoError(tt, err)
 		})
 	}
@@ -1055,9 +1094,12 @@ func TestBuggyIPs(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for i, test := range tests {
 		t.Run(test.svc, func(tt *testing.T) {
-			ip, err := alloc.Allocate(test.svc, false, nil, "", "")
+			ip, err := alloc.Allocate(l, test.svc, false, nil, "", "")
 			if test.wantErr {
 				assert.Errorf(tt, err, "#%d should have caused an error, but did not", i+1)
 				return
@@ -1344,6 +1386,9 @@ func TestAutoAssign(t *testing.T) {
 		},
 	}
 
+	l, err := logging.Init()
+	assert.NoError(t, err)
+
 	for i, test := range tests {
 		t.Run(test.svc, func(tt *testing.T) {
 			if test.unassign {
@@ -1351,7 +1396,7 @@ func TestAutoAssign(t *testing.T) {
 				return
 			}
 
-			ip, err := alloc.Allocate(test.svc, test.isIPv6, nil, "", "")
+			ip, err := alloc.Allocate(l, test.svc, test.isIPv6, nil, "", "")
 			if test.wantErr {
 				assert.Errorf(tt, err, "#%d should have caused an error, but did not", i+1)
 				return
@@ -1421,7 +1466,7 @@ func TestPoolCount(t *testing.T) {
 func TestReservationMetaData(t *testing.T) {
 	t.Run("WhenNoEnvVariableSet", func(tt *testing.T) {
 		metaData := reservationMetaData()
-		assert.Empty(tt, metaData[clusterIDMetaDataKey])
+		assert.Empty(tt, metaData[ipam.ClusterIDKey])
 	})
 
 	t.Run("WhenEnvVariableSet", func(tt *testing.T) {
@@ -1433,10 +1478,10 @@ func TestReservationMetaData(t *testing.T) {
 		os.Setenv(clusterIDEnvVariable, randomClusterID)
 
 		expectedMetaData := map[string]string{
-			workspaceIDMetaDataKey:     randomWorkspaceID,
-			instanceIDMetaDataKey:      randomInstanceID,
-			clusterIDMetaDataKey:       randomClusterID,
-			reservationTypeMetaDataKey: reservationTypeMetaDataValue,
+			ipam.WorkspaceIDKey:       randomWorkspaceID,
+			ipam.ClusterInstanceIDKey: randomInstanceID,
+			ipam.ClusterIDKey:         randomClusterID,
+			ipam.IPReservationTypeKey: ipam.IPReservationTypeLoadbalancer,
 		}
 
 		metaData := reservationMetaData()

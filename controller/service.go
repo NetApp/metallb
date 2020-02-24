@@ -101,7 +101,7 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 			l.Log("op", "allocateIP", "error", "controller not synced", "msg", "controller not synced yet, cannot allocate IP; will retry after sync")
 			return false
 		}
-		ip, err := c.allocateIP(key, svc)
+		ip, err := c.allocateIP(l, key, svc)
 		if err != nil {
 			l.Log("op", "allocateIP", "error", err, "msg", "IP allocation failed")
 			c.client.Errorf(svc, "AllocationFailed", "Failed to allocate IP for %q: %s", key, err)
@@ -139,14 +139,14 @@ func (c *controller) convergeBalancer(l log.Logger, key string, svc *v1.Service)
 // clearServiceState clears all fields that are actively managed by
 // this controller.
 func (c *controller) clearServiceState(l log.Logger, key string, svc *v1.Service) {
-	if err := c.ips.UnAllocate(key); err != nil {
+	if err := c.ips.UnAllocate(l, key); err != nil {
 		l.Log("bug", "IPReleaseFailed", "error", err)
 	}
 	c.ips.Unassign(key)
 	svc.Status.LoadBalancer = v1.LoadBalancerStatus{}
 }
 
-func (c *controller) allocateIP(key string, svc *v1.Service) (net.IP, error) {
+func (c *controller) allocateIP(l log.Logger, key string, svc *v1.Service) (net.IP, error) {
 	clusterIP := net.ParseIP(svc.Spec.ClusterIP)
 	if clusterIP == nil {
 		// (we should never get here because the caller ensured that Spec.ClusterIP != nil)
@@ -172,7 +172,7 @@ func (c *controller) allocateIP(key string, svc *v1.Service) (net.IP, error) {
 	// Otherwise, did the user ask for a specific pool?
 	desiredPool := svc.Annotations["metallb.universe.tf/address-pool"]
 	if desiredPool != "" {
-		ip, err := c.ips.AllocateFromPool(key, isIPv6, desiredPool, k8salloc.Ports(svc), k8salloc.SharingKey(svc), k8salloc.BackendKey(svc))
+		ip, err := c.ips.AllocateFromPool(l, key, isIPv6, desiredPool, k8salloc.Ports(svc), k8salloc.SharingKey(svc), k8salloc.BackendKey(svc))
 		if err != nil {
 			return nil, err
 		}
@@ -180,5 +180,5 @@ func (c *controller) allocateIP(key string, svc *v1.Service) (net.IP, error) {
 	}
 
 	// Okay, in that case just bruteforce across all pools.
-	return c.ips.Allocate(key, isIPv6, k8salloc.Ports(svc), k8salloc.SharingKey(svc), k8salloc.BackendKey(svc))
+	return c.ips.Allocate(l, key, isIPv6, k8salloc.Ports(svc), k8salloc.SharingKey(svc), k8salloc.BackendKey(svc))
 }
